@@ -71,10 +71,19 @@ function launchCmd(nr, role, cwd, opts = session) {
   return `printf '${tintSeq}'; ${banner}claude -n ${name}${model}${mode} --append-system-prompt ${prompt}${start}`;
 }
 
+// Tab icons (codicons) and colours, the same colours as the layout preview in tuned-team.
+const ICONS = {
+  manager: ["star-full", "terminal.ansiBlue"],
+  deputy: ["shield", "terminal.ansiMagenta"],
+  colleague: ["account", "terminal.ansiWhite"],
+  standby: ["zap", "terminal.ansiYellow"],
+};
+const iconOf = (role) => ({ iconPath: new vscode.ThemeIcon(ICONS[role][0]), color: new vscode.ThemeColor(ICONS[role][1]) });
+
 // location: an editor group ({ viewColumn }), the panel, or a split ({ parentTerminal }).
 function member(nr, role, location, cwd, opts = session) {
   const label = nr >= 2 ? `#${nr - 1} ${role}` : role[0].toUpperCase() + role.slice(1);
-  const t = vscode.window.createTerminal({ name: label, cwd, location });
+  const t = vscode.window.createTerminal({ name: label, cwd, location, ...iconOf(role) });
   t.sendText(launchCmd(nr, role, cwd, opts));
   return t;
 }
@@ -179,7 +188,8 @@ async function team(n, opts = {}, shellPid) {
   await sleep(200);
   const deputy = member(1, "deputy", { parentTerminal: manager }, cwd);
   await sleep(200);
-  vscode.window.createTerminal({ cwd, location: { parentTerminal: deputy } });
+  // Standby: a plain shell at hand for the owner, for a quick reaction.
+  vscode.window.createTerminal({ name: "Standby", cwd, location: { parentTerminal: deputy }, ...iconOf("standby") });
   old.forEach((t) => t.dispose());
   manager.show(false);
 }

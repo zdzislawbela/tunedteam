@@ -26,7 +26,7 @@ Instead of one window with one agent, you get several at once. You mostly talk t
 
 - Each cell is a separate terminal running `claude`, started with a window name (`manager`, `deputy`, `2-colleague`; colleagues are numbered from 1) and a role from a Markdown file. Agents know each other by these names and write to each other with `SendMessage`.
 - The window's background shows how much context it has used, as a red heatmap: black up to 10%, then redder, full red from 30% (time to clear). Counted against the model's real window (Opus = 1M tokens). The status line `tuned-statusline.sh` sets it, so it needs that status line (see below). The number `#N` in the tab name tells windows apart.
-- When the team needs more hands, the deputy gives you the command for `Tuned Team: add colleague` (`! open "vscode://tuned.tuned-team/add"`; the sandbox blocks `open` for agents), and a new window appears on the right.
+- When the team needs more hands, the deputy gives you the command for `Tuned Team: add colleague` (`open "vscode://tuned.tuned-team/add"` in your terminal; the sandbox blocks `open` for agents), and a new window appears on the right.
 
 This is how the work flows. Tasks go down, reports come back up:
 
@@ -72,6 +72,9 @@ The built-in roles carry these rules, so every project gets them:
 - **Merge to the local base branch.** Green work goes straight into the local base branch, nothing parked waiting for a look; you test there. Pushing and releasing follow the control mode below.
 - **Release freeze.** Before a release the deputy names a freeze time. After it nothing new is merged; unfinished work goes to the project's todo with a description, branch and state.
 - **Clearing windows.** A colleague starts each task in a clean window: after its merge it marks itself READY TO CLEAR, the deputy sends the manager those numbers, and the manager restarts the windows itself. The mark can be stale, so the manager first checks the window is really idle. You never type `/clear` or a restart command for the team. At about 30% context a colleague stops and hands its state to a fresh window. The deputy clears at about 10%, the manager at about 20%, each after a handover message, never both at once.
+- **Shared machine.** The team runs on one laptop: at most 2 full checks and 4 dev servers at a time across the team, test browsers only headless and closed after the test.
+- **Commands for you.** Anything you have to run comes in one RUN block to copy into your terminal, no `!`; the agent checks the result itself.
+- **Reading aloud.** If your project reads a reply tag aloud, only the manager writes it, and only for a question or a blocker.
 - **Decisions as cards.** A decision for you comes as a card in a shared page or artifact: context, options with trade-offs, a recommendation and a way to pick. Never a one-liner in chat. If you say "decide yourselves" for a task, the team does not ask: colleagues decide small details, the manager or deputy bigger ones, and the manager tells you what was decided.
 - **Short reports.** Colleagues write state with `tuned-report` (no tokens) and send a message only when action is needed: a blocker, finished work (branch and commit), a handover or a decision. The deputy reads no diffs or big files; a colleague or a subagent checks and answers in one sentence.
 
@@ -86,7 +89,7 @@ It only steers the team's roles (it is added to every window's prompt). It does 
 
 ### What stays manual
 
-The Claude Code sandbox blocks `git push` (no access to `~/.ssh`) and `open "vscode://…"` for agents. Tuned Team adds no sandbox exceptions for them. The deputy gives you the exact command and you run it with `!` in its window, e.g. `! git push origin master` or `! open "vscode://tuned.tuned-team/add"`. Clearing windows is not on this list: the manager restarts READY TO CLEAR colleagues itself.
+The Claude Code sandbox blocks `git push` (no access to `~/.ssh`) and `open "vscode://…"` for agents. Tuned Team adds no sandbox exceptions for them. The deputy gives you the exact command in a RUN block (`▶▶▶ RUN ▶▶▶` … `◀◀◀ END RUN ◀◀◀`, nothing else to copy) and you run it in your own terminal, e.g. `git push origin master` or `open "vscode://tuned.tuned-team/add"`. Clearing windows is not on this list: the manager restarts READY TO CLEAR colleagues itself.
 
 ### Tuned Team and agency-agents
 
@@ -193,7 +196,7 @@ These are suggestions, not rules. You can type your own number (1 to 20) in the 
 - **Start with 2 and add more as needed** with the "Tuned Team: add colleague" command. The new window appears on the right.
 - **As many colleagues as you have independent tasks at once**, meaning ones that touch different files and different branches. A colleague with no task waits and does nothing, and the manager and the deputy have to remember it. 
 - **A good task for a colleague** can be described in 2–4 sentences (what and why) and finished without constant questions to you. Give tasks that change the same files to one colleague, because two will start overwriting each other.
-- **Every working window uses up your Claude account limit.** The more windows run at once, the faster the weekly limit runs out. The author sticks to at most 8 windows (manager, deputy and 6 colleagues) and measured that with 15 windows working at once the limit dropped by about 1% per 10 minutes. That is a measurement from one account and one plan; yours may differ.
+- **Every working window uses up your Claude account limit.** The more windows run at once, the faster the weekly limit runs out. The author sticks to at most 8 windows (manager, deputy and 6 colleagues) and measured that with 15 windows working at once the limit dropped by about 1% per 10 minutes. That is a measurement from one account and one plan; yours may differ. Past about 10 windows the extra hands mostly wait for the merge queue on the base branch and for the same files, so more windows bring little.
 
 ### Terminal shortcut (optional)
 
@@ -223,3 +226,5 @@ Update: `git pull && ./install.sh`. Uninstall: Extensions → Tuned Team → Uni
 ## For the author: a new version
 
 Bump `version` in `package.json`, commit and push. There is no `.vsix` in the repo: `install.sh` builds it on the spot, so after `git pull && ./install.sh` and "Developer: Reload Window" everyone has the new version.
+
+The whole setup (roles, layout, helper scripts) lives in this one plugin, written in English so it can be shared with a team; there is no separate organisation or repo for it.

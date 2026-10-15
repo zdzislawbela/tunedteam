@@ -2,7 +2,7 @@
   "name": "tuned-team",
   "displayName": "Tuned Team",
   "description": "A team of Claude Code agents in one window: manager, deputy and colleagues, each with its own role",
-  "version": "0.1.19",
+  "version": "0.1.20",
   "publisher": "tuned",
   "license": "UNLICENSED",
   "repository": {

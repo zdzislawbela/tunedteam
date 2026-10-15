@@ -69,7 +69,7 @@ layout() {
     printf '\n'; r=$((r + 1))
   done
   pw=$(( (w - 2) / 3 ))
-  printf '  '; block 25 "$pw" manager; printf ' '; block 91 "$pw" deputy; printf ' '; block 240 $(( w - 2 - 2 * pw )) shell
+  printf '  '; block 25 "$pw" manager; printf ' '; block 91 "$pw" deputy; printf ' '; block 136 $(( w - 2 - 2 * pw )) standby
   printf "  ${D}bottom panel${R}\n"
 }
 
@@ -118,9 +118,9 @@ if [ -n "$asked" ]; then
   printf "\n"; banner; printf "\n"
   printf "Hi, this is the Manager. My deputy and I run on Opus.\n"
   printf "A few questions, then VS Code opens your team in this window:\n"
-  printf "  ${D}·${R} colleagues on top, manager | deputy | a new shell in the bottom panel\n"
+  printf "  ${D}·${R} colleagues on top, manager | deputy | standby (a shell at hand) in the bottom panel\n"
   printf "  ${D}·${R} you talk only to the manager; every window runs in auto mode\n"
-  printf "  ${D}·${R} this terminal closes, the new shell takes its place\n"
+  printf "  ${D}·${R} this terminal closes, standby takes its place\n"
   printf "  ${D}·${R} how it works: ${B}%s${R}\n" "$DOCS"
   [ -z "$lang" ] && { step=$((step + 1)); stepper $step; choose "Language?" 1 English Polski; case "$CHOICE" in Polski) lang=pl;; *) lang=en;; esac; }
   step=$((step + 1)); stepper $step
