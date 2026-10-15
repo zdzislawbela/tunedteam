@@ -1,7 +1,7 @@
 // Tuned Team: a team of Claude Code agents in one editor window.
 // manager, deputy and N colleagues (numbered from 1), each in its
-// own editor group, with a role from a .md file (--append-system-prompt). Roles:
-// ~/.tuned-team/roles/<role>.md (your own) or defaults/roles/<role>.md from this extension.
+// own editor group, with the shared team.md plus a role from a .md file (--append-system-prompt).
+// Roles: ~/.tuned-team/roles/<role>.md (your own) or defaults/roles/<role>.md from this extension.
 const vscode = require("vscode");
 const path = require("path");
 const fs = require("fs");
@@ -64,7 +64,7 @@ function launchCmd(nr, role, cwd, opts = session) {
   const addUrl = `${vscode.env.uriScheme}://${EXT_ID}/add`;
   const prompt =
     `"$(TT_ROLES=${quote(roles)} TT_ADD=${quote(addUrl)} ` +
-    `perl -pe 's/\\{\\{ROLES\\}\\}/$ENV{TT_ROLES}/g; s/\\{\\{ADD_URL\\}\\}/$ENV{TT_ADD}/g' ${quote(roleFile(role))}; ` +
+    `perl -pe 's/\\{\\{ROLES\\}\\}/$ENV{TT_ROLES}/g; s/\\{\\{ADD_URL\\}\\}/$ENV{TT_ADD}/g' ${quote(roleFile("team"))} ${quote(roleFile(role))}; ` +
     `printf '\\n\\nLanguage: ${opts.lang === "pl" ? "reply to the owner and write to teammates in Polish" : "reply to the owner and write to teammates in English"}.\\n'; ` +
     `printf '%s\\n' ${quote(CONTROL[controlOf()].text)})"`;
   const banner = nr === 0 ? `printf '${bannerSeq}'; ` : "";

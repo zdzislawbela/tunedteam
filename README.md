@@ -207,7 +207,7 @@ tuned-team() { open "vscode://tuned.tuned-team/team?n=${1:-2}"; }
 
 ## Custom roles
 
-Roles are plain Markdown files: `manager.md`, `deputy.md`, `colleague.md`. The extension takes them from `~/.tuned-team/roles/` and uses the built-in ones from `defaults/roles/` only when they are not there.
+Roles are plain Markdown files: `team.md` (rules for every window, put in front of each role), `manager.md`, `deputy.md`, `colleague.md`. The extension takes them from `~/.tuned-team/roles/` and uses the built-in ones from `defaults/roles/` only when they are not there.
 
 ```sh
 mkdir -p ~/.tuned-team/roles
