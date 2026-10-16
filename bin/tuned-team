@@ -32,16 +32,16 @@ CONTROL = {
              "permissions wait for a yes from the owner, given after you show the exact repo, branch and commits. "
              "The owner pushes by hand: give them the exact command.",
     'team': "Control mode for this project: THE TEAM DECIDES. manager-1 releases on its own when there are new merged "
-            "commits on the base branch; nobody asks the owner about each step. Permission prompts and sandbox blocks "
+            "commits on the base branch; the team decides each step itself. Permission prompts and sandbox blocks "
             "still go to the owner.",
 }
 SPEAK = {
     'all': "Reading aloud is ON for everything: end each reply to the owner with <speak>1-2 plain spoken sentences: "
-           "what happened or what you need</speak>. No tables, paths or code inside it.",
+           "what happened or what you need</speak>. Put only plain words inside it.",
     'questions': "Reading aloud is ON for questions only: when you ask the owner something or something is stuck "
                  "(a permission, a failing check), end the reply with <speak>1-2 plain spoken sentences</speak>. "
-                 "Never for status. No tables, paths or code inside it.",
-    'off': "Reading aloud is OFF: never write a <speak> tag.",
+                 "Keep status replies in plain text. Put only plain words inside the tag.",
+    'off': "Reading aloud is OFF: reply in plain text only.",
 }
 LANGUAGE = ("Language: reply to the owner in the language the owner writes in. "
             "Write to teammates in English.")
