@@ -21,6 +21,43 @@ git clone git@github.com:zdzislawbela/tuned-team.git ~/tools/tuned-team
 
 Works in any terminal (Ghostty, iTerm2, Terminal). Needs `tmux`, `claude`, `python3`, `git`.
 
+## Two Claude accounts (e.g. work and private)
+
+Claude Code keeps an account in a config folder: `~/.claude` by default, any other
+folder through `CLAUDE_CONFIG_DIR`. One-time setup of a second account:
+
+```sh
+CLAUDE_CONFIG_DIR=~/.claude-priv claude
+```
+
+Log in inside it (`/login`, pick the private account), then exit. From then on
+`tuned-team` lists both accounts at start with their email and plan, and remembers
+your choice per project. Name extra folders `~/.claude-<something>` and they are found
+on their own.
+
+Optional, so plain `claude` in a terminal also picks the right account by folder
+(in `~/.zshrc`):
+
+```sh
+autoload -U add-zsh-hook
+_claude_profile() {
+  if [[ $PWD == $HOME/repos/priv* ]]; then export CLAUDE_CONFIG_DIR=$HOME/.claude-priv
+  else unset CLAUDE_CONFIG_DIR; fi
+}
+add-zsh-hook chpwd _claude_profile; _claude_profile
+```
+
+## Paid API key vs subscription
+
+With `ANTHROPIC_API_KEY` in the environment, Claude Code may bill the API instead of
+your Max or Pro plan. On an account with a subscription, every Tuned Team window starts
+without that variable, so the windows run on the plan and the agents' commands cannot
+pick the key up. `tuned-team` also warns at start when it finds the key in your shell or
+in the project's `.env*` files, and the team rules tell agents to run their own AI work
+(tests, scoring, simulations) through `claude -p` or subagents, and the paid API only with
+your yes. Project scripts that read the key from `.env.local` themselves are outside
+Tuned Team's reach: block them in the project (see your AGENTS.md).
+
 ## Use
 
 In a project folder:

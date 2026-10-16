@@ -168,6 +168,10 @@ def launch(team, name, cfg, first=''):
     # The account comes from CLAUDE_CONFIG_DIR. Without it, clear it explicitly: the tmux server keeps the
     # environment of the shell that first started it, which may belong to the other account.
     prefix = [] if os.environ.get('CLAUDE_CONFIG_DIR') else ['env', '-u', 'CLAUDE_CONFIG_DIR']
+    # On a subscription, windows run without the paid API key: Claude Code then uses the plan, and the
+    # agents' commands cannot pick the key up from the environment.
+    if cfg.get('subscription', True):
+        prefix = (prefix or ['env']) + ['-u', 'ANTHROPIC_API_KEY']
     cmd = prefix + ['claude', '-n', name, '--model', model, '--permission-mode', 'auto',
            '--settings', settings_file(team, name, cfg),
            '--append-system-prompt-file', prompt_file(team, name, cfg)]
@@ -219,6 +223,7 @@ def auth_status(config_dir):
     """`claude auth status` for one account (config folder; None = the default ~/.claude)."""
     env = dict(os.environ)
     env.pop('CLAUDE_CONFIG_DIR', None)
+    env.pop('ANTHROPIC_API_KEY', None)  # with a key in env, status reports the key, not the subscription
     if config_dir:
         env['CLAUDE_CONFIG_DIR'] = config_dir
     try:
@@ -273,8 +278,26 @@ def choose_account(last):
         if not auth_status(d).get('loggedIn'):
             sys.exit('Still not logged in; nothing opened. Run tuned-team again after logging in.')
     st = auth_status(d)
-    print(f"Using {st.get('email') or 'API key'} ({st.get('subscriptionType') or st.get('authMethod', '?')}).\n")
-    return d
+    print(f"Using {st.get('email') or 'API key'} ({st.get('subscriptionType') or st.get('authMethod', '?')}).")
+    return d, bool(st.get('subscriptionType'))
+
+
+def api_key_warning(cwd, subscription):
+    """Say where a paid Anthropic API key could leak into the agents' work."""
+    found = ['your shell environment'] if os.environ.get('ANTHROPIC_API_KEY') else []
+    for f in sorted(glob.glob(os.path.join(cwd, '.env*'))):
+        if re.search(r'\.(example|sample|template)$', f):
+            continue  # templates hold placeholders, not keys
+        try:
+            if re.search(r'^\s*(export\s+)?ANTHROPIC_API_KEY\s*=\s*\S', open(f).read(), re.M):
+                found.append(os.path.basename(f))
+        except OSError:
+            pass
+    if found and subscription:
+        print(f"Paid Anthropic API key found in {', '.join(found)}. Windows start without it and use your plan; "
+              "agents call the paid API only with your yes and a stated cost.")
+    elif found:
+        print(f"This account has no subscription: the agents run on the API key from {', '.join(found)} and it costs money.")
 
 
 def trusted(path):
@@ -297,7 +320,9 @@ def start():
         return attach(team)
     last = config(team)
     print(f'Tuned Team for {team}. Enter keeps the value in [brackets].\n')
-    account = choose_account(last)
+    account, subscription = choose_account(last)
+    api_key_warning(os.getcwd(), subscription)
+    print()
     if not trusted(os.getcwd()):
         sys.exit('Claude Code does not trust this folder yet on this account, and every window would ask. '
                  'Run `claude` here once, answer "Yes, I trust this folder", exit, then run tuned-team again.')
@@ -308,7 +333,7 @@ def start():
     speak_all = ask('Read all notifications aloud (y/n)?', 'y' if last.get('speak') == 'all' else 'n', ['y', 'n'])
     speak = 'all' if speak_all == 'y' else (
         'questions' if ask('Read aloud only questions for you (y/n)?', 'n' if last.get('speak') == 'off' else 'y', ['y', 'n']) == 'y' else 'off')
-    cfg = dict(account=account, specialists=specialists, model=model, control=control, speak=speak,
+    cfg = dict(account=account, subscription=subscription, specialists=specialists, model=model, control=control, speak=speak,
                cwd=os.getcwd())
     write_json(os.path.join(state_dir(team), 'config.json'), cfg)
     write_json(os.path.join(state_dir(team), 'reports.json'), {})
