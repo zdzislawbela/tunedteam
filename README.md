@@ -29,8 +29,9 @@ In a project folder:
 tuned-team
 ```
 
-It lists your Claude accounts (`~/.claude` and every `~/.claude-*` folder, e.g. work and
-private), asks which one to use and logs it in first if needed, so no window opens on a
+It lists your Claude accounts (`~/.claude`, every `~/.claude-*` folder and your own
+`CLAUDE_CONFIG_DIR`, e.g. work and private), asks which one to use (with one account it
+skips the question) and logs it in first if needed, so no window opens on a
 logged-out account. Then it asks for the number of specialists, the model, who decides on push
 and release, and whether to read notifications or only questions aloud. The director
 answers in the language you write in; agents write to each other in English. Then the tabs open and you talk to the director (tab 0). The last tab, `shell · last resort`,

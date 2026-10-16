@@ -231,10 +231,15 @@ def accounts():
     """[(config_dir or None, label)] of the Claude accounts on this Mac: ~/.claude plus every ~/.claude-*."""
     dirs = [None] + sorted(d.rstrip('/') for d in glob.glob(os.path.join(HOME, '.claude-*/'))
                            if os.path.exists(os.path.join(d, '.claude.json')))
+    # A CLAUDE_CONFIG_DIR somewhere else (e.g. ~/work/claude) is an account too.
+    own = os.environ.get('CLAUDE_CONFIG_DIR')
+    if own and os.path.realpath(own) not in [os.path.realpath(d) for d in dirs if d]:
+        dirs.append(own.rstrip('/'))
     out = []
     for d in dirs:
         st = auth_status(d)
-        who = f"{st.get('email')}, {st.get('subscriptionType', '?')}" if st.get('loggedIn') else 'not logged in'
+        plan = st.get('subscriptionType') or st.get('authMethod', '?')
+        who = f"{st.get('email') or 'API key'}, {plan}" if st.get('loggedIn') else 'not logged in'
         out.append((d, f"{who} ({(d or os.path.join(HOME, '.claude')).replace(HOME, '~')})"))
     return out
 
@@ -254,10 +259,13 @@ def choose_account(last):
     accs = accounts()
     current = last.get('account', os.environ.get('CLAUDE_CONFIG_DIR'))
     default = next((i for i, (d, _) in enumerate(accs, 1) if d == current), 1)
-    print('Claude accounts:')
-    for i, (_, label) in enumerate(accs, 1):
-        print(f'  {i}. {label}')
-    d = accs[ask_number('Which account?', default, 1, len(accs)) - 1][0]
+    if len(accs) == 1:
+        d = accs[0][0]
+    else:
+        print('Claude accounts:')
+        for i, (_, label) in enumerate(accs, 1):
+            print(f'  {i}. {label}')
+        d = accs[ask_number('Which account?', default, 1, len(accs)) - 1][0]
     use_account(d)
     if not auth_status(d).get('loggedIn'):
         print('This account is not logged in. Logging in now (a browser opens).')
@@ -265,7 +273,7 @@ def choose_account(last):
         if not auth_status(d).get('loggedIn'):
             sys.exit('Still not logged in; nothing opened. Run tuned-team again after logging in.')
     st = auth_status(d)
-    print(f"Using {st.get('email')} ({st.get('subscriptionType', '?')}).\n")
+    print(f"Using {st.get('email') or 'API key'} ({st.get('subscriptionType') or st.get('authMethod', '?')}).\n")
     return d
 
 
