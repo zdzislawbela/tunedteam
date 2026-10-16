@@ -47,6 +47,21 @@ _claude_profile() {
 add-zsh-hook chpwd _claude_profile; _claude_profile
 ```
 
+## Database and deploy tools (MCP)
+
+At start you choose how agents may use database and deploy tools from your MCP servers
+(Supabase, Neon, Vercel and others):
+
+- **ask** (default, the safe choice): agents read freely; every tool that writes, migrates,
+  deploys or deletes (`execute_*`, `apply_*`, `run_sql*`, `deploy_*`, `delete_*`, `drop_*`,
+  `insert_*`, branch merge/reset/rebase, on any server) is on Claude Code's ask list, so you
+  approve each call in that window. This holds in auto mode too. Agents also save the change
+  as a file in the repo and show you the exact SQL first.
+- **full**: agents write, migrate and deploy on their own. Pick it only when the database
+  is a staging copy, never the one real users write to.
+
+If your MCP server has a read-only mode (Supabase does), connect it read-only for the team.
+
 ## Paid API key vs subscription
 
 With `ANTHROPIC_API_KEY` in the environment, Claude Code may bill the API instead of

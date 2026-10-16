@@ -43,6 +43,18 @@ SPEAK = {
                  "Keep status replies in plain text. Put only plain words inside the tag.",
     'off': "Reading aloud is OFF: reply in plain text only.",
 }
+# Database and deploy tools through MCP. "ask" puts every tool that writes, migrates, deploys or deletes
+# on Claude Code's ask list (it holds in auto mode too, tested), so the owner approves each call.
+DB_WRITE_TOOLS = ['mcp__*__execute_*', 'mcp__*__apply_*', 'mcp__*__run_sql*', 'mcp__*__deploy_*', 'mcp__*__delete_*',
+                  'mcp__*__drop_*', 'mcp__*__insert_*', 'mcp__*__merge_branch', 'mcp__*__reset_branch',
+                  'mcp__*__rebase_branch', 'mcp__*__create_edge_function_secret']
+DB = {
+    'ask': "Database and deploy tools: read freely. Before any write, migration, deploy or delete, save the change "
+           "as a file in the repo (e.g. a SQL migration), show the owner the exact SQL or command, and run it after "
+           "their yes; Claude Code asks the owner for each such tool call.",
+    'full': "Database and deploy tools: full rights. Run writes, migrations and deploys yourself, saving each "
+            "schema change as a migration file in the repo.",
+}
 LANGUAGE = ("Language: reply to the owner in the language the owner writes in. "
             "Write to teammates in English.")
 WAIT = '{name} is waiting for you'
@@ -138,7 +150,8 @@ def prompt_file(team, name, cfg):
     parts = [open(os.path.join(ROLES, 'team.md')).read(), open(os.path.join(ROLES, f'{role}.md')).read(),
              team_lines(name, cfg, team),
              LANGUAGE,
-             CONTROL[cfg['control']]]
+             CONTROL[cfg['control']],
+             DB[cfg.get('db', 'ask')]]
     if role == 'director':
         parts.append(SPEAK[cfg['speak']])
     path = os.path.join(state_dir(team), 'prompts', f'{name}.md')
@@ -152,6 +165,8 @@ def settings_file(team, name, cfg):
     """Per-window Claude Code settings, layered on top of the user's own (claude --settings)."""
     me_cmd = shlex.quote(os.path.realpath(__file__))
     s = {'statusLine': {'type': 'command', 'command': f'{me_cmd} statusline'}, 'hooks': {}}
+    if cfg.get('db', 'ask') == 'ask':
+        s['permissions'] = {'ask': DB_WRITE_TOOLS}
     if name == 'director' and cfg['speak'] != 'off':
         s['hooks']['Stop'] = [{'hooks': [{'type': 'command', 'command': f'{me_cmd} speak'}]}]
     if cfg['speak'] == 'all':
@@ -330,10 +345,12 @@ def start():
     model = ask('Model for the specialists (opus/sonnet)? The director always runs on opus.',
                 last.get('model', 'opus'), ['opus', 'sonnet'])
     control = ask('Who decides on push, release and deploy (owner/team)?', last.get('control', 'owner'), ['owner', 'team'])
+    db = ask('Database and deploy writes through MCP: ask you each time, or full rights for the agents (ask/full)? '
+             'Pick full only on a staging database.', last.get('db', 'ask'), ['ask', 'full'])
     speak_all = ask('Read all notifications aloud (y/n)?', 'y' if last.get('speak') == 'all' else 'n', ['y', 'n'])
     speak = 'all' if speak_all == 'y' else (
         'questions' if ask('Read aloud only questions for you (y/n)?', 'n' if last.get('speak') == 'off' else 'y', ['y', 'n']) == 'y' else 'off')
-    cfg = dict(account=account, subscription=subscription, specialists=specialists, model=model, control=control, speak=speak,
+    cfg = dict(account=account, subscription=subscription, specialists=specialists, model=model, control=control, db=db, speak=speak,
                cwd=os.getcwd())
     write_json(os.path.join(state_dir(team), 'config.json'), cfg)
     write_json(os.path.join(state_dir(team), 'reports.json'), {})
