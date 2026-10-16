@@ -1,0 +1,25 @@
+#!/bin/sh
+# Publishes a Tuned Team version for Homebrew: pushes main, tags vX.Y.Z, then points the
+# formula in zdzislawbela/homebrew-tap (~/repos/priv/homebrew-tap) at the new tag and pushes it
+# (creating the tap repo on GitHub the first time).
+#   sh release.sh 0.2.0
+set -e
+v=${1:?usage: sh release.sh 0.2.0}
+here=$(cd "$(dirname "$0")" && pwd)
+tap=${TUNED_TAP_DIR:-$HOME/repos/priv/homebrew-tap}
+
+git -C "$here" push origin main
+git -C "$here" tag "v$v"
+git -C "$here" push origin "v$v"
+
+url="https://github.com/zdzislawbela/tuned-team/archive/refs/tags/v$v.tar.gz"
+sha=$(curl -fsSL "$url" | shasum -a 256 | cut -d' ' -f1)
+sed -i '' -e "s|^  url \".*\"|  url \"$url\"|" -e "s|^  sha256 \".*\"|  sha256 \"$sha\"|" "$tap/Formula/tuned-team.rb"
+git -C "$tap" add -A
+git -C "$tap" commit -q -m "tuned-team $v"
+if git -C "$tap" remote get-url origin >/dev/null 2>&1; then
+  git -C "$tap" push origin main
+else
+  gh repo create zdzislawbela/homebrew-tap --public --source "$tap" --push --description "Homebrew formulas"
+fi
+echo "Released tuned-team $v: brew install zdzislawbela/tap/tuned-team"
