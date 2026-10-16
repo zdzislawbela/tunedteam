@@ -1,8 +1,1 @@
 .DS_Store
-# the owner's private roles; the extension reads them from ~/.tuned-team/roles
-/roles/
-/roles.bak-*/
-tuned-layout.vsix
-
-# built extension packages, not kept in the repo
-/dist/

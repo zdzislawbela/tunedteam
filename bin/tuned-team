@@ -1,148 +1,528 @@
-#!/bin/sh
-# Tuned Team: asks about the team and opens the windows in VS Code (extension zbela.tuned-team).
-# Usage:  tuned-team                 (asks)
-#         tuned-team 4 sonnet [pl]   (no questions; language defaults to en)
-R='\033[0m'; D='\033[2m'; B='\033[1m'
-DOCS="https://github.com/zdzislawbela/tuned-team#readme"
+#!/usr/bin/env python3
+"""Tuned Team: a multi-agent dev environment for Claude Code, in tmux.
 
-n="$1"; model="$2"; lang="$3"
-asked=""; [ -z "$n" ] && asked=1
+The owner runs only `tuned-team` in a project folder: a few questions, then one
+tmux session opens with a tab per agent. You talk to the director; managers look
+after the specialists; specialists do the work. The other commands are for the agents.
 
-# Banner: "tuned.team" in small letters, lighting up one by one. Quiet, no background.
-banner() {
-  txt="tuned.team"
-  if [ -t 1 ]; then
-    i=1
-    while [ "$i" -le ${#txt} ]; do
-      printf '\r  \033[38;5;252m%s\033[38;5;240m%s' "$(echo "$txt" | cut -c1-$((i - 1)))" "$(echo "$txt" | cut -c$i)"
-      sleep 0.07
-      i=$((i + 1))
-    done
-  fi
-  printf "\r\033[2K  ${B}\033[38;5;255m%s${R}\n" "$txt"
+  tuned-team                            ask, then start the team for this folder
+  tuned-team status                     team table: who works, who waits for the owner, context
+  tuned-team report start|eta|done ...  a specialist writes its state into the table
+  tuned-team check [--timeout S] CMD..  run the full check once one of the 2 machine slots is free
+  tuned-team done                       task merged, nothing open: restart this window fresh
+  tuned-team add manager|specialist     open one more window
+  tuned-team restart NAME               restart a window with a fresh context
+  tuned-team close-all [--force]        close every window (lists unmerged work first)
+  tuned-team statusline                 Claude Code status line (JSON on stdin)
+  tuned-team speak                      Claude Code hook: reads <speak> text or a wait aloud
+"""
+import glob, json, os, re, shlex, subprocess, sys, time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+ROLES = os.path.join(ROOT, 'roles')
+TMUX = ['tmux', '-L', 'tuned', '-f', os.path.join(ROOT, 'tmux.conf')]
+HOME = os.path.expanduser('~')
+CLAUDE_DIR = os.environ.get('CLAUDE_CONFIG_DIR') or os.path.join(HOME, '.claude')
+CHECK_SLOTS = int(os.environ.get('TUNED_CHECK_MAX', 2))
+CHECK_PATTERN = os.environ.get('TUNED_CHECK_PATTERN', 'npm run check')
+
+CONTROL = {
+    'owner': "Control mode for this project: THE OWNER DECIDES. Release, push, deploy and changes to settings or "
+             "permissions wait for a yes from the owner, given after you show the exact repo, branch and commits. "
+             "The owner pushes by hand: give them the exact command.",
+    'team': "Control mode for this project: THE TEAM DECIDES. manager-1 releases on its own when there are new merged "
+            "commits on the base branch; nobody asks the owner about each step. Permission prompts and sandbox blocks "
+            "still go to the owner.",
 }
-
-# Greeting with the day and date, in the chosen language.
-greet() {
-  d=$(date +%d.%m); u=$(date +%u)
-  if [ "$lang" = pl ]; then
-    day=$(echo "poniedziałek wtorek środa czwartek piątek sobota niedziela" | cut -d' ' -f"$u")
-    printf "  Witamy, jest %s %s. Zaczynamy.\n" "$day" "$d"
-    printf "  ${D}Tu rozmawiamy po ludzku: napisz managerowi, co chcesz dziś zrobić, resztą zajmie się zespół.${R}\n"
-  else
-    printf "  Welcome, it's %s %s. Let's start.\n" "$(date +%A)" "$d"
-    printf "  ${D}No jargon needed here: tell the manager what you want to get done today, the team takes it from there.${R}\n"
-  fi
+SPEAK = {
+    'all': "Reading aloud is ON for everything: end each reply to the owner with <speak>1-2 plain spoken sentences: "
+           "what happened or what you need</speak>. No tables, paths or code inside it.",
+    'questions': "Reading aloud is ON for questions only: when you ask the owner something or something is stuck "
+                 "(a permission, a failing check), end the reply with <speak>1-2 plain spoken sentences</speak>. "
+                 "Never for status. No tables, paths or code inside it.",
+    'off': "Reading aloud is OFF: never write a <speak> tag.",
 }
+WAITS = {'pl': '{name} czeka na Ciebie', 'en': '{name} is waiting for you'}
+VOICE = {'pl': ['-v', 'Zosia'], 'en': []}
 
-# Stepper: "✓ done ── ● current ── ○ next   2/3". Steps are the questions still to ask.
-STEPS=""
-stepper() {
-  cur="$1"; i=1; total=$(echo $STEPS | wc -w | tr -d ' ')
-  printf '\n  '
-  for s in $STEPS; do
-    [ "$i" -gt 1 ] && printf "${D} ── ${R}"
-    if [ "$i" -lt "$cur" ]; then printf "\033[38;5;46m✓ %s${R}" "$s"
-    elif [ "$i" -eq "$cur" ]; then printf "${B}\033[38;5;51m● %s${R}" "$s"
-    else printf "${D}○ %s${R}" "$s"; fi
-    i=$((i + 1))
-  done
-  printf "   ${D}step %s/%s${R}\n\n" "$cur" "$total"
-}
 
-# Layout preview: colleagues in 2 rows on top, manager | deputy | shell in the bottom panel.
-block() { printf "\033[48;5;%sm\033[38;5;255m\033[1m%-*s${R}" "$1" "$2" " $3"; }
-layout() {
-  n="$1"; rows=2; [ "$n" -lt 2 ] && rows=1
-  cols=$(( (n + rows - 1) / rows )); w=$(( cols * 7 - 1 )); [ "$w" -lt 32 ] && w=32
-  cw=$(( (w + 1) / cols - 1 ))
-  r=0
-  while [ "$r" -lt "$rows" ]; do
-    printf '  '; c=1
-    while [ "$c" -le "$cols" ]; do
-      k=$(( r * cols + c ))
-      if [ "$k" -le "$n" ]; then block 238 "$cw" "#$k"; else printf "%-*s" "$cw" ""; fi
-      [ "$c" -lt "$cols" ] && printf ' '
-      c=$((c + 1))
-    done
-    [ "$r" -eq 0 ] && printf "  ${D}colleagues${R}"
-    printf '\n'; r=$((r + 1))
-  done
-  pw=$(( (w - 2) / 3 ))
-  printf '  '; block 25 "$pw" manager; printf ' '; block 91 "$pw" deputy; printf ' '; block 136 $(( w - 2 - 2 * pw )) standby
-  printf "  ${D}bottom panel${R}\n"
-}
+# ---------- small helpers ----------
 
-# Arrow-key picker: choose "Question" default_index opt1 opt2 ...  -> sets $CHOICE
-choose() {
-  q="$1"; sel="$2"; shift 2; cnt=$#
-  old=$(stty -g)
-  trap 'stty "$old"; printf "\033[?25h"; exit 130' INT
-  stty -echo -icanon min 1 time 0
-  printf '\033[?25l'
-  while :; do
-    printf '\r\033[2K%s ' "$q"
-    i=1
-    for o in "$@"; do
-      if [ "$i" -eq "$sel" ]; then printf "${B}\033[38;5;51m● %s${R}  " "$o"; else printf "${D}○ %s${R}  " "$o"; fi
-      i=$((i + 1))
-    done
-    printf "${D}(←/→, Enter)${R}"
-    k=$(dd bs=1 count=1 2>/dev/null)
-    case "$k" in
-      '') break;;
-      "$(printf '\033')")
-        stty min 0 time 1
-        k2=$(dd bs=1 count=2 2>/dev/null)
-        stty min 1 time 0
-        case "$k2" in
-          '[C'|'[B') sel=$(( sel % cnt + 1 ));;
-          '[D'|'[A') sel=$(( (sel + cnt - 2) % cnt + 1 ));;
-        esac;;
-      l|j|' ') sel=$(( sel % cnt + 1 ));;
-      h|k) sel=$(( (sel + cnt - 2) % cnt + 1 ));;
-    esac
-  done
-  stty "$old"; trap - INT
-  printf '\033[?25h\r\033[2K'
-  i=1; for o in "$@"; do [ "$i" -eq "$sel" ] && CHOICE="$o"; i=$((i + 1)); done
-  printf "%s ${B}%s${R}\n" "$q" "$CHOICE"
-}
+def run(cmd, **kw):
+    return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
-[ -n "$asked" ] && [ -z "$lang" ] && STEPS="Language"
-[ -n "$asked" ] && STEPS="$STEPS Colleagues"
-[ -z "$model" ] && STEPS="$STEPS Model"
-step=0
 
-if [ -n "$asked" ]; then
-  printf "\n"; banner; printf "\n"
-  printf "Hi, this is the Manager. My deputy and I run on Opus.\n"
-  printf "A few questions, then VS Code opens your team in this window:\n"
-  printf "  ${D}·${R} colleagues on top, manager | deputy | standby (a shell at hand) in the bottom panel\n"
-  printf "  ${D}·${R} you talk only to the manager; every window runs in auto mode\n"
-  printf "  ${D}·${R} this terminal closes, standby takes its place\n"
-  printf "  ${D}·${R} how it works: ${B}%s${R}\n" "$DOCS"
-  [ -z "$lang" ] && { step=$((step + 1)); stepper $step; choose "Language?" 1 English Polski; case "$CHOICE" in Polski) lang=pl;; *) lang=en;; esac; }
-  step=$((step + 1)); stepper $step
-  while :; do
-    printf "How many colleagues? ${D}[2]${R} "; read -r n
-    n="${n:-2}"
-    case "$n" in ''|*[!0-9]*) echo "Enter a number from 1 to 20."; continue;; esac
-    [ "$n" -ge 1 ] && [ "$n" -le 20 ] && break
-    echo "Enter a number from 1 to 20."
-  done
-fi
+def tmux(*args):
+    return run(TMUX + list(args))
 
-if [ -z "$model" ]; then
-  step=$((step + 1)); [ -n "$STEPS" ] && stepper $step
-  choose "Model for the colleagues?" 1 opus sonnet
-  model="$CHOICE"
-fi
 
-case "$lang" in pl) ;; *) lang=en;; esac
+def repo_root(path):
+    """The repo's main checkout (the same for every worktree), or the folder itself outside git."""
+    out = run(['git', '-C', path, 'rev-parse', '--path-format=absolute', '--git-common-dir']).stdout.strip()
+    return os.path.dirname(os.path.realpath(out)) if out else os.path.realpath(path)
 
-printf "\n"; layout "$n"
-printf "\n"; greet
-printf "\n${D}Opening windows: manager, deputy and $n colleagues ($model, $lang). Docs: $DOCS${R}\n\n"
-# $PPID is this terminal's shell: the extension closes it once the new panel is up.
-open "vscode://tuned.tuned-team/team?n=$n&model=$model&lang=$lang&pid=$PPID"
+
+def team_name(path=None):
+    if os.environ.get('TUNED_TEAM') and path is None:
+        return os.environ['TUNED_TEAM']
+    return re.sub(r'[^A-Za-z0-9_-]', '-', os.path.basename(repo_root(path or os.getcwd())))
+
+
+def state_dir(team):
+    d = os.path.join(HOME, '.tuned-team', 'teams', team)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def read_json(path, default):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+
+def write_json(path, data):
+    tmp = path + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(data, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, path)
+
+
+def config(team):
+    return read_json(os.path.join(state_dir(team), 'config.json'), {})
+
+
+def windows(team):
+    """[(index, name, pane_pid)] of the team's tmux session."""
+    out = tmux('list-panes', '-s', '-t', f'={team}', '-F', '#{window_index}\t#{window_name}\t#{pane_pid}').stdout
+    return [(int(i), n, int(p)) for i, n, p in (l.split('\t') for l in out.splitlines() if l.count('\t') == 2)]
+
+
+def manager_of(k, managers):
+    """Specialist k belongs to manager ((k - 1) % managers) + 1."""
+    return f'manager-{(k - 1) % max(managers, 1) + 1}'
+
+
+def numbers(team, role):
+    return sorted(int(m.group(1)) for _, n, _ in windows(team) if (m := re.fullmatch(rf'{role}-(\d+)', n)))
+
+
+def me():
+    name = os.environ.get('TUNED_NAME')
+    if not name:
+        sys.exit('Run this inside a Tuned Team window (TUNED_NAME is not set).')
+    return name
+
+
+# ---------- prompts and launching ----------
+
+def team_lines(name, cfg, team):
+    """Who this window works with, from the windows that are open now."""
+    m = cfg['managers']
+    specs = numbers(team, 'specialist') or list(range(1, cfg['specialists'] + 1))
+    mine = lambda j: [f'specialist-{k}' for k in specs if manager_of(k, m) == f'manager-{j}']
+    if name == 'director':
+        lines = [f"- manager-{j}: looks after {', '.join(mine(j)) or 'nobody yet'}" for j in range(1, m + 1)]
+        return 'Your team:\n' + '\n'.join(lines)
+    if name.startswith('manager-'):
+        j = int(name.split('-')[1])
+        others = [f'manager-{i}' for i in range(1, m + 1) if i != j]
+        return (f"You are {name}. Your specialists: {', '.join(mine(j)) or 'none yet (add one with `tuned-team add specialist`)'}."
+                f" Other managers: {', '.join(others) or 'none, you are the only one'}.")
+    k = int(name.split('-')[1])
+    return f'You are {name}. Your manager: {manager_of(k, m)}.'
+
+
+def prompt_file(team, name, cfg):
+    role = 'specialist' if name.startswith('specialist-') else 'manager' if name.startswith('manager-') else 'director'
+    parts = [open(os.path.join(ROLES, 'team.md')).read(), open(os.path.join(ROLES, f'{role}.md')).read(),
+             team_lines(name, cfg, team),
+             f"Language: reply to the owner and write to teammates in {'Polish' if cfg['lang'] == 'pl' else 'English'}.",
+             CONTROL[cfg['control']]]
+    if role == 'director':
+        parts.append(SPEAK[cfg['speak']])
+    path = os.path.join(state_dir(team), 'prompts', f'{name}.md')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w') as f:
+        f.write('\n\n'.join(parts) + '\n')
+    return path
+
+
+def settings_file(team, name, cfg):
+    """Per-window Claude Code settings, layered on top of the user's own (claude --settings)."""
+    me_cmd = shlex.quote(os.path.realpath(__file__))
+    s = {'statusLine': {'type': 'command', 'command': f'{me_cmd} statusline'}, 'hooks': {}}
+    if name == 'director' and cfg['speak'] != 'off':
+        s['hooks']['Stop'] = [{'hooks': [{'type': 'command', 'command': f'{me_cmd} speak'}]}]
+    if cfg['speak'] == 'all':
+        s['hooks']['Notification'] = [{'hooks': [{'type': 'command', 'command': f'{me_cmd} speak'}]}]
+    path = os.path.join(state_dir(team), 'settings', f'{name}.json')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    write_json(path, s)
+    return path
+
+
+def launch(team, name, cfg, first=''):
+    """tmux args (env + command) that start one agent's claude."""
+    model = 'opus' if name == 'director' else cfg['model']
+    cmd = ['claude', '-n', name, '--model', model, '--permission-mode', 'auto',
+           '--settings', settings_file(team, name, cfg),
+           '--append-system-prompt-file', prompt_file(team, name, cfg)]
+    if first:
+        cmd.append(first)
+    env = {'TUNED_TEAM': team, 'TUNED_NAME': name}
+    if os.environ.get('CLAUDE_CONFIG_DIR'):
+        env['CLAUDE_CONFIG_DIR'] = os.environ['CLAUDE_CONFIG_DIR']
+    args = []
+    for k, v in env.items():
+        args += ['-e', f'{k}={v}']
+    return args, shlex.join(cmd)
+
+
+def first_message(name, cfg, restarted=False):
+    if name == 'director':
+        if restarted:
+            return 'You were restarted with a fresh context. Run `tuned-team status` and ask manager-1 for the handover.'
+        return (f"start. Team: {cfg['managers']} manager(s), {cfg['specialists']} specialist(s). "
+                'Tell the owner who is on the team, the control mode, and that you are ready for a task.')
+    if name.startswith('manager-') and restarted:
+        return 'You were restarted with a fresh context. Run `tuned-team status`; ask the director what is open for you.'
+    return ''
+
+
+def open_window(team, name, cfg):
+    env, cmd = launch(team, name, cfg, first_message(name, cfg))
+    tmux('new-window', '-d', '-t', f'={team}:', '-n', name, '-c', cfg['cwd'], *env, cmd)
+
+
+# ---------- the owner's command: ask, then start ----------
+
+def ask(question, default, valid=None):
+    while True:
+        a = input(f'{question} [{default}] ').strip() or str(default)
+        if valid is None or a in valid:
+            return a
+        print(f"  Answer one of: {', '.join(valid)}")
+
+
+def ask_number(question, default, lo, hi):
+    while True:
+        a = input(f'{question} [{default}] ').strip() or str(default)
+        if a.isdigit() and lo <= int(a) <= hi:
+            return int(a)
+        print(f'  Enter a number from {lo} to {hi}.')
+
+
+def trusted(path):
+    """Claude Code asked once whether to trust this folder (or a parent) and got a yes."""
+    cfg = os.path.join(CLAUDE_DIR, '.claude.json') if os.environ.get('CLAUDE_CONFIG_DIR') else os.path.join(HOME, '.claude.json')
+    projects = read_json(cfg, {}).get('projects', {})
+    p = os.path.realpath(path)
+    while True:
+        if projects.get(p, {}).get('hasTrustDialogAccepted'):
+            return True
+        if p == os.path.dirname(p):
+            return False
+        p = os.path.dirname(p)
+
+
+def start():
+    team = team_name(os.getcwd())
+    if tmux('has-session', '-t', f'={team}').returncode == 0:
+        print(f'Team "{team}" is already running; attaching.')
+        return attach(team)
+    if not trusted(os.getcwd()):
+        sys.exit('Claude Code does not trust this folder yet, and every window would ask. '
+                 'Run `claude` here once, answer "Yes, I trust this folder", exit, then run tuned-team again.')
+    last = config(team)
+    print(f'Tuned Team for {team}. Enter keeps the value in [brackets].\n')
+    lang = ask('Language (pl/en)?', last.get('lang', 'en'), ['pl', 'en'])
+    specialists = ask_number('How many specialists?', last.get('specialists', 2), 1, 100)
+    managers = ask_number('How many managers?', last.get('managers', max(1, specialists // 10)), 1, max(1, specialists))
+    model = ask('Model for managers and specialists (opus/sonnet)? The director always runs on opus.',
+                last.get('model', 'opus'), ['opus', 'sonnet'])
+    control = ask('Who decides on push, release and deploy (owner/team)?', last.get('control', 'owner'), ['owner', 'team'])
+    speak_all = ask('Read all notifications aloud (y/n)?', 'y' if last.get('speak') == 'all' else 'n', ['y', 'n'])
+    speak = 'all' if speak_all == 'y' else (
+        'questions' if ask('Read aloud only questions for you (y/n)?', 'n' if last.get('speak') == 'off' else 'y', ['y', 'n']) == 'y' else 'off')
+    cfg = dict(lang=lang, specialists=specialists, managers=managers, model=model, control=control, speak=speak,
+               cwd=os.getcwd())
+    write_json(os.path.join(state_dir(team), 'config.json'), cfg)
+    write_json(os.path.join(state_dir(team), 'reports.json'), {})
+
+    env, cmd = launch(team, 'director', cfg, first_message('director', cfg))
+    r = tmux('new-session', '-d', '-s', team, '-n', 'director', '-c', cfg['cwd'], *env, cmd)
+    if r.returncode:
+        sys.exit(f'tmux could not start: {r.stderr.strip()}')
+    print(f'Opening the director, {managers} manager(s) and {specialists} specialist(s)...')
+    for j in range(1, managers + 1):
+        open_window(team, f'manager-{j}', cfg)
+    for k in range(1, specialists + 1):
+        open_window(team, f'specialist-{k}', cfg)
+        time.sleep(0.3)  # 100 claudes starting in the same second choke the machine
+    attach(team)
+
+
+def attach(team):
+    tmux('select-window', '-t', f'={team}:=director')
+    if not sys.stdout.isatty():
+        return print(f'Team {team} is running: {shlex.join(TMUX + ["attach-session", "-t", team])}')
+    if os.environ.get('TMUX'):
+        os.execvp(TMUX[0], TMUX + ['switch-client', '-t', f'={team}'])
+    os.execvp(TMUX[0], TMUX + ['attach-session', '-t', f'={team}'])
+
+
+# ---------- agents' commands ----------
+
+def add(role):
+    if role not in ('manager', 'specialist'):
+        sys.exit('Usage: tuned-team add manager|specialist')
+    team = team_name()
+    cfg = config(team)
+    k = max(numbers(team, role) or [0]) + 1
+    name = f'{role}-{k}'
+    if role == 'manager':
+        cfg['managers'] = max(cfg['managers'], k)
+        write_json(os.path.join(state_dir(team), 'config.json'), cfg)
+    open_window(team, name, cfg)
+    print(f'Opened {name}' + (f' (manager: {manager_of(k, cfg["managers"])})' if role == 'specialist' else '') + '.')
+
+
+def restart(name):
+    team = team_name()
+    cfg = config(team)
+    if name in ('self', os.environ.get('TUNED_NAME')):
+        name = me()
+        delay = 8  # let this reply finish before the window starts over
+    else:
+        delay = 0
+    if name not in [n for _, n, _ in windows(team)]:
+        sys.exit(f'No window "{name}" in team {team}.')
+    reports = read_json(os.path.join(state_dir(team), 'reports.json'), {})
+    reports.pop(name, None)
+    write_json(os.path.join(state_dir(team), 'reports.json'), reports)
+    env, cmd = launch(team, name, cfg, first_message(name, cfg, restarted=True))
+    respawn = shlex.join(TMUX + ['respawn-window', '-k', '-t', f'={team}:={name}', '-c', cfg['cwd'], *env, cmd])
+    tmux('run-shell', '-b', f'sleep {delay}; {respawn}')
+    print(f'{name} restarts with a fresh context' + (f' in {delay} s.' if delay else '.'))
+
+
+def done():
+    """Task merged, worktree and branch removed: the window starts over with a fresh context."""
+    report(['done'])
+    restart('self')
+
+
+def report(args):
+    kind = args[0] if args else ''
+    if kind not in ('start', 'eta', 'done'):
+        sys.exit('Usage: tuned-team report start "~15:00" "what" | eta "~16:00" | done "commit abc123"')
+    name, team = me(), team_name()
+    path = os.path.join(state_dir(team), 'reports.json')
+    reports = read_json(path, {})
+    r = reports.setdefault(name, {})
+    rest = args[1:]
+    if kind == 'start':
+        r.update(eta=rest[0] if rest else '?', what=rest[1] if len(rest) > 1 else r.get('what', ''), done=False)
+    elif kind == 'eta':
+        r['eta'] = rest[0] if rest else '?'
+    else:
+        r.update(done=True, eta='', what=f'done: {rest[0]}' if rest else 'done')
+    write_json(path, reports)
+    print(f'report saved ({name}): {kind} {" ".join(rest)}'.strip())
+
+
+def check(args):
+    timeout = 0
+    if args[:1] == ['--timeout']:
+        timeout, args = int(args[1]), args[2:]
+    running = lambda: len(run(['pgrep', '-fx', CHECK_PATTERN]).stdout.split())
+    waited = 0
+    while running() >= CHECK_SLOTS:
+        if timeout and waited >= timeout:
+            print(f'tuned-team check: still {running()} checks running after {waited} s (limit {CHECK_SLOTS}). '
+                  'Nothing ran, do not merge; try again later.', file=sys.stderr)
+            sys.exit(3)
+        if waited % 60 == 0:
+            print(f'tuned-team check: {running()} checks running (limit {CHECK_SLOTS}), waiting...', file=sys.stderr)
+        time.sleep(15)
+        waited += 15
+    if args:
+        os.execvp(args[0], args)
+
+
+def close_all(force):
+    team = team_name()
+    top = repo_root(os.getcwd())
+    base = run(['git', '-C', top, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).stdout.strip().removeprefix('origin/') \
+        or run(['git', '-C', top, 'branch', '--show-current']).stdout.strip()
+    open_work = []
+    if base:
+        for b in run(['git', '-C', top, 'branch', '--format=%(refname:short)', '--no-merged', base]).stdout.split():
+            open_work.append(f'branch {b}: not merged into {base}')
+        for wt in re.findall(r'^worktree (.+)$', run(['git', '-C', top, 'worktree', 'list', '--porcelain']).stdout, re.M):
+            if wt != top:
+                open_work.append(f'worktree {wt}')
+            changes = run(['git', '-C', wt, 'status', '--porcelain'] + (['--untracked-files=no'] if wt == top else [])).stdout
+            if changes.strip():
+                open_work.append(f'uncommitted files in {wt}: {len(changes.splitlines())}')
+    if open_work and not force:
+        print('Unmerged work, the team stays open:')
+        print('\n'.join(f'  - {w}' for w in open_work))
+        print("Close anyway? Only after the owner's yes: tuned-team close-all --force")
+        sys.exit(1)
+    print(f'Closing team {team}.')
+    tmux('run-shell', '-b', f"sleep 3; {shlex.join(TMUX + ['kill-session', '-t', f'={team}'])}")
+
+
+# ---------- status table ----------
+
+def claude_pid(pane_pid):
+    """The claude process in a pane: the pane's own process or one of its children."""
+    for pid in [pane_pid] + [int(p) for p in run(['pgrep', '-P', str(pane_pid)]).stdout.split()]:
+        if os.path.exists(os.path.join(CLAUDE_DIR, 'sessions', f'{pid}.json')):
+            return pid
+    return None
+
+
+def transcript(sid):
+    """Last reply text, the tool call still waiting for its result (a permission prompt), context tokens, model."""
+    files = glob.glob(os.path.join(CLAUDE_DIR, 'projects', '*', f'{sid}.jsonl'))
+    last, pending, ctx, model = '', None, 0, ''
+    if not files:
+        return last, pending, ctx, model
+    with open(max(files, key=os.path.getmtime)) as f:
+        for line in f:
+            try:
+                r = json.loads(line)
+            except Exception:
+                continue
+            msg = r.get('message') or {}
+            if r.get('type') == 'assistant':
+                u = msg.get('usage') or {}
+                if u:
+                    ctx = u.get('input_tokens', 0) + u.get('cache_read_input_tokens', 0) + u.get('cache_creation_input_tokens', 0)
+                model = msg.get('model', model)
+                c = msg.get('content')
+                if isinstance(c, list):
+                    calls = [x for x in c if isinstance(x, dict) and x.get('type') == 'tool_use']
+                    pending = calls[-1].get('name') if calls else pending
+                    t = ' '.join(x.get('text', '') for x in c if isinstance(x, dict) and x.get('type') == 'text').strip()
+                    last = t or last
+            elif r.get('type') == 'user':
+                pending = None
+    return last, pending, ctx, model
+
+
+def ctx_pct(tokens, model):
+    window = 1_000_000 if 'opus' in model else 200_000
+    return round(tokens * 100 / window)
+
+
+def short(s, n):
+    s = ' '.join(str(s).split())
+    return s if len(s) <= n else s[: n - 1] + '…'
+
+
+def status():
+    team = team_name()
+    cfg = config(team)
+    reports = read_json(os.path.join(state_dir(team), 'reports.json'), {})
+    rows = []
+    for idx, name, pane in windows(team):
+        pid = claude_pid(pane)
+        sess = read_json(os.path.join(CLAUDE_DIR, 'sessions', f'{pid}.json'), {}) if pid else {}
+        last, pending, tokens, model = transcript(sess['sessionId']) if sess.get('sessionId') else ('', None, 0, '')
+        rep = reports.get(name, {})
+        if not pid:
+            state = 'starting or stopped'
+        elif name == os.environ.get('TUNED_NAME'):
+            state = 'this window'
+        elif sess.get('status') == 'waiting' and pending:
+            state = f"waiting for the owner: {'question' if pending == 'AskUserQuestion' else pending.removeprefix('mcp__')}"
+        elif sess.get('status') == 'busy':
+            state = 'working'
+        elif rep and not rep.get('done'):
+            state = 'task open'
+        else:
+            state = 'free'
+        if name == 'director':
+            role = 'talks to the owner'
+        elif name.startswith('manager-'):
+            role = ', '.join(n for _, n, _ in windows(team) if n.startswith('specialist-')
+                             and manager_of(int(n.split('-')[1]), cfg.get('managers', 1)) == name) or 'no specialists'
+        else:
+            role = manager_of(int(name.split('-')[1]), cfg.get('managers', 1))
+        doing = rep.get('what', '') if rep else ''
+        rows.append((idx, name, role, f'{ctx_pct(tokens, model)}%' if tokens else '–', state, rep.get('eta', ''), doing))
+    specs = [r for r in rows if r[1].startswith('specialist-')]
+    count = lambda pred: sum(1 for r in specs if pred(r[4]))
+    print(f"{team} · {time.strftime('%H:%M')} · specialists: {count(lambda s: s in ('working', 'task open'))} working · "
+          f"{count(lambda s: s.startswith('waiting'))} waiting for the owner · {count(lambda s: s == 'free')} free")
+    print()
+    print('| # | Window | Works with | Ctx | State | ETA | Doing |')
+    print('|---|---|---|---|---|---|---|')
+    for idx, name, role, ctx, state, eta, doing in rows:
+        print(f'| {idx} | {name} | {role} | {ctx} | {short(state, 40)} | {short(eta, 12)} | {short(doing, 48)} |')
+
+
+# ---------- hooks ----------
+
+def statusline():
+    d = json.loads(sys.stdin.read() or '{}')
+    cwd = (d.get('workspace') or {}).get('current_dir') or d.get('cwd') or os.getcwd()
+    model = (d.get('model') or {}).get('display_name', '')
+    branch = run(['git', '-C', cwd, '--no-optional-locks', 'branch', '--show-current']).stdout.strip()
+    out = os.path.basename(repo_root(cwd)) + (f' ({branch})' if branch else '') + (f' | {model}' if model else '')
+    cw = d.get('context_window') or {}
+    u = cw.get('current_usage') or {}
+    tokens = u.get('input_tokens', 0) + u.get('cache_read_input_tokens', 0) + u.get('cache_creation_input_tokens', 0)
+    if tokens:
+        out += f" | ctx {ctx_pct(tokens, (d.get('model') or {}).get('id', ''))}%"
+    elif cw.get('used_percentage') is not None:
+        out += f" | ctx {round(cw['used_percentage'])}%"
+    print(out)
+
+
+def speak():
+    d = json.loads(sys.stdin.read() or '{}')
+    lang = config(team_name()).get('lang', 'en')
+    if d.get('hook_event_name') == 'Notification':
+        text = WAITS[lang].format(name=os.environ.get('TUNED_NAME', 'Claude').replace('-', ' '))
+    else:
+        text = '\n'.join(re.findall(r'<speak>(.*?)</speak>', d.get('last_assistant_message') or '', re.S))
+    if text.strip():
+        subprocess.Popen(['say', *VOICE[lang], text], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+
+
+def main():
+    a = sys.argv[1:]
+    cmd = a[0] if a else ''
+    if cmd == '':
+        start()
+    elif cmd == 'status':
+        status()
+    elif cmd == 'report':
+        report(a[1:])
+    elif cmd == 'check':
+        check(a[1:])
+    elif cmd == 'done':
+        done()
+    elif cmd == 'add':
+        add(a[1] if len(a) > 1 else '')
+    elif cmd == 'restart' and len(a) > 1:
+        restart(a[1])
+    elif cmd == 'close-all':
+        close_all('--force' in a)
+    elif cmd == 'statusline':
+        statusline()
+    elif cmd == 'speak':
+        speak()
+    else:
+        sys.exit(__doc__)
+
+
+if __name__ == '__main__':
+    main()
