@@ -8,6 +8,7 @@ after the specialists; specialists do the work. The other commands are for the a
   tuned-team                            ask, then start the team for this folder
   tuned-team status                     team table: who works, who waits for the owner, context
   tuned-team report start|eta|done ...  a specialist writes its state into the table
+  tuned-team worktree BRANCH [BASE]      new branch + worktree next to the repo, hidden from Spotlight
   tuned-team check [--timeout S] CMD..  run the full check once one of the 2 machine slots is free
   tuned-team done                       task merged, nothing open: restart this window fresh
   tuned-team add manager|specialist     open one more window
@@ -314,6 +315,27 @@ def done():
     restart('self')
 
 
+def worktree(args):
+    """New branch + worktree in <repo>-worktrees.noindex/ next to the repo (Spotlight skips .noindex folders).
+    node_modules is cloned (APFS clone: seconds, no extra disk) and .env.local copied, if the repo has them."""
+    if not args:
+        sys.exit('Usage: tuned-team worktree <branch> [base]')
+    branch = args[0]
+    top = repo_root(os.getcwd())
+    base = args[1] if len(args) > 1 else (
+        run(['git', '-C', top, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).stdout.strip().removeprefix('origin/')
+        or run(['git', '-C', top, 'branch', '--show-current']).stdout.strip())
+    path = os.path.join(os.path.dirname(top), f'{os.path.basename(top)}-worktrees.noindex', branch.replace('/', '-'))
+    r = run(['git', '-C', top, 'worktree', 'add', '-b', branch, path, base])
+    if r.returncode:
+        sys.exit(r.stderr.strip())
+    if os.path.isdir(os.path.join(top, 'node_modules')):
+        run(['cp', '-cR', os.path.join(top, 'node_modules'), os.path.join(path, 'node_modules')])
+    if os.path.exists(os.path.join(top, '.env.local')):
+        run(['cp', os.path.join(top, '.env.local'), os.path.join(path, '.env.local')])
+    print(f'Worktree for {branch} (from {base}): {path}')
+
+
 def report(args):
     kind = args[0] if args else ''
     if kind not in ('start', 'eta', 'done'):
@@ -455,16 +477,20 @@ def status():
         else:
             role = manager_of(int(name.split('-')[1]), cfg.get('managers', 1))
         doing = rep.get('what', '') if rep else ''
-        rows.append((idx, name, role, f'{ctx_pct(tokens, model)}%' if tokens else '–', state, rep.get('eta', ''), doing))
+        rss = run(['ps', '-o', 'rss=', '-p', str(pid)]).stdout.strip() if pid else ''
+        ram = f'{int(rss) // 1024} MB' if rss.isdigit() else '–'
+        rows.append((idx, name, role, f'{ctx_pct(tokens, model)}%' if tokens else '–', ram, state, rep.get('eta', ''), doing))
     specs = [r for r in rows if r[1].startswith('specialist-')]
-    count = lambda pred: sum(1 for r in specs if pred(r[4]))
+    count = lambda pred: sum(1 for r in specs if pred(r[5]))
     print(f"{team} · {time.strftime('%H:%M')} · specialists: {count(lambda s: s in ('working', 'task open'))} working · "
           f"{count(lambda s: s.startswith('waiting'))} waiting for the owner · {count(lambda s: s == 'free')} free")
     print()
-    print('| # | Window | Works with | Ctx | State | ETA | Doing |')
-    print('|---|---|---|---|---|---|---|')
-    for idx, name, role, ctx, state, eta, doing in rows:
-        print(f'| {idx} | {name} | {role} | {ctx} | {short(state, 40)} | {short(eta, 12)} | {short(doing, 48)} |')
+    print('| # | Window | Works with | Ctx | RAM | State | ETA | Doing |')
+    print('|---|---|---|---|---|---|---|---|')
+    for idx, name, role, ctx, ram, state, eta, doing in rows:
+        print(f'| {idx} | {name} | {role} | {ctx} | {ram} | {short(state, 40)} | {short(eta, 12)} | {short(doing, 48)} |')
+    total = sum(int(r[4].split()[0]) for r in rows if r[4] != '–')
+    print(f'\nRAM of all windows: {total / 1024:.1f} GB')
 
 
 # ---------- hooks ----------
@@ -473,8 +499,12 @@ def statusline():
     d = json.loads(sys.stdin.read() or '{}')
     cwd = (d.get('workspace') or {}).get('current_dir') or d.get('cwd') or os.getcwd()
     model = (d.get('model') or {}).get('display_name', '')
-    branch = run(['git', '-C', cwd, '--no-optional-locks', 'branch', '--show-current']).stdout.strip()
-    out = os.path.basename(repo_root(cwd)) + (f' ({branch})' if branch else '') + (f' | {model}' if model else '')
+    # One git call for both the repo (main checkout, also from a worktree) and the branch.
+    git = run(['git', '-C', cwd, '--no-optional-locks', 'rev-parse', '--path-format=absolute',
+               '--git-common-dir', '--abbrev-ref', 'HEAD']).stdout.split('\n')
+    repo = os.path.dirname(os.path.realpath(git[0])) if git[0] else cwd
+    branch = git[1] if len(git) > 1 and git[1] != 'HEAD' else ''
+    out = os.path.basename(repo) + (f' ({branch})' if branch else '') + (f' | {model}' if model else '')
     cw = d.get('context_window') or {}
     u = cw.get('current_usage') or {}
     tokens = u.get('input_tokens', 0) + u.get('cache_read_input_tokens', 0) + u.get('cache_creation_input_tokens', 0)
@@ -506,6 +536,8 @@ def main():
         status()
     elif cmd == 'report':
         report(a[1:])
+    elif cmd == 'worktree':
+        worktree(a[1:])
     elif cmd == 'check':
         check(a[1:])
     elif cmd == 'done':

@@ -39,8 +39,9 @@ Every window shows one plain status line: `repo (branch) | model | ctx %`.
 
 | Command | What it does |
 |---|---|
-| `tuned-team status` | team table: who works, who waits for the owner, context, ETA |
+| `tuned-team status` | team table: who works, who waits for the owner, context, RAM, ETA |
 | `tuned-team report start\|eta\|done` | a specialist writes its state into the table |
+| `tuned-team worktree BRANCH [BASE]` | new branch + worktree in `<repo>-worktrees.noindex/` next to the repo (Spotlight skips `.noindex` folders), node_modules cloned, .env.local copied |
 | `tuned-team check [--timeout S] CMD` | runs the full check once one of the 2 machine slots is free (exit 3: no slot, nothing ran) |
 | `tuned-team done` | task merged, nothing open: the window restarts with a fresh context |
 | `tuned-team add manager\|specialist` | opens one more window |

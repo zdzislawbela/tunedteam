@@ -1,6 +1,0 @@
-.git/**
-.gitignore
-dist/**
-roles/**
-tuned-layout.vsix
-install.sh
