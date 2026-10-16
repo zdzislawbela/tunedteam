@@ -14,12 +14,15 @@ layer of managers cost 2-3x the tokens per commit for about 14% more commits.
 ## Install
 
 ```sh
-brew install tmux
-git clone git@github.com:zdzislawbela/tuned-team.git ~/repos/tuned-team
-~/repos/tuned-team/install.sh
+brew install zdzislawbela/tap/tuned-team
 ```
 
-Works in any terminal (Ghostty, iTerm2, Terminal). Needs `tmux`, `claude`, `python3`, `git`.
+Homebrew brings tmux along. Claude Code is installed separately
+(`brew install --cask claude-code`). Update with `brew upgrade tuned-team`. Works in any
+terminal (Ghostty, iTerm2, Terminal).
+
+To work on Tuned Team itself instead: clone this repo and run `./install.sh`, which links
+`bin/tuned-team` into `~/bin` (needs `tmux`, `claude`, `python3`, `git`).
 
 ## Two Claude accounts (e.g. work and private)
 
