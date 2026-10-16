@@ -51,6 +51,27 @@ Every window shows one plain status line: `repo (branch) | model | ctx %`.
 `statusline` and `speak` are Claude Code hooks; they are passed to each window with
 `claude --settings`, so your own `settings.json` stays untouched.
 
+## Compared with other tools
+
+How Tuned Team differs from tools people use to run many coding agents. Mostly an
+opinion from reading the tools' pages and reviews (October 2026), not a benchmark.
+Only the Tuned Team and VS Code memory figures were measured, on a 48 GB M4 Pro.
+
+| Tool | What it is | Who splits the work | Each task isolated | 16 agents on one laptop | Notes |
+|---|---|---|---|---|---|
+| **Tuned Team** | terminal (tmux), one command | the agents: director → managers → specialists; you talk only to the director | git worktree per task | yes: a fresh session uses ~370 MB (measured), so 16 are roughly 6-10 GB; should fit a 16 GB MacBook Air, not tested there | roles, quality gate before merge, machine limits (2 checks, 4 dev servers), read-aloud |
+| Claude Squad | terminal (tmux) with a session switcher | you: you prompt each agent and review each diff | git worktree per session | likely yes, same tmux model | session manager, no coordination between agents; AGPL-3.0 |
+| Claude Code agent teams | built into Claude Code, experimental | a lead agent | worktree support | likely yes, panes need tmux or iTerm2 | off by default; more tokens than subagents |
+| VS Code + Claude Code panels | Electron editor | you | your own scripts | **no** in our use: at 8-10 long sessions the window froze (one renderer process at 1.4 GB and 100% of one core, measured) | every panel is drawn by one window process |
+| Cursor 3 (Agents Window) | Electron editor (VS Code fork) | you | worktree per agent | up to 8 agents per window (vendor) | same Electron model as VS Code; paid plans |
+| OpenAI Codex app | desktop app | you | built-in worktrees | not known | another model and plan |
+| Conductor | Mac app | you | worktree per workspace | 5-10 sessions (reviews) | GUI around worktrees: chat, diff, checks, PR |
+| workmux, dmux | small terminal tools | you | worktree per task | likely yes | windows and worktrees only |
+
+In short: the window-and-worktree layer is the same everywhere (tmux or an app around
+git worktrees). What Tuned Team adds is the coordination: agents hand out and check the
+work, so one person can run 16 of them without switching between windows.
+
 ## How it works
 
 - Roles: `roles/team.md` (rules for everyone) plus `roles/director.md`, `manager.md` or
