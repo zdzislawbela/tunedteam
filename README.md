@@ -29,7 +29,8 @@ In a project folder:
 tuned-team
 ```
 
-It asks for the number of specialists, the model, who decides on push
+It shows the Claude account it will use (from `CLAUDE_CONFIG_DIR`, e.g. a private and a
+work account in different folders) and asks for the number of specialists, the model, who decides on push
 and release, and whether to read notifications or only questions aloud. The director
 answers in the language you write in; agents write to each other in English. Then the tabs open and you talk to the director (tab 0). The last tab, `shell · last resort`,
 is a plain terminal for you in the project folder, for when you have to type something yourself.

@@ -165,7 +165,10 @@ def settings_file(team, name, cfg):
 def launch(team, name, cfg, first=''):
     """tmux args (env + command) that start one agent's claude."""
     model = 'opus' if name == 'director' else cfg['model']
-    cmd = ['claude', '-n', name, '--model', model, '--permission-mode', 'auto',
+    # The account comes from CLAUDE_CONFIG_DIR. Without it, clear it explicitly: the tmux server keeps the
+    # environment of the shell that first started it, which may belong to the other account.
+    prefix = [] if os.environ.get('CLAUDE_CONFIG_DIR') else ['env', '-u', 'CLAUDE_CONFIG_DIR']
+    cmd = prefix + ['claude', '-n', name, '--model', model, '--permission-mode', 'auto',
            '--settings', settings_file(team, name, cfg),
            '--append-system-prompt-file', prompt_file(team, name, cfg)]
     if first:
@@ -212,6 +215,13 @@ def ask_number(question, default, lo, hi):
         print(f'  Enter a number from {lo} to {hi}.')
 
 
+def account():
+    """The Claude account these windows use: its email and config folder (CLAUDE_CONFIG_DIR picks it)."""
+    cfg = os.path.join(CLAUDE_DIR, '.claude.json') if os.environ.get('CLAUDE_CONFIG_DIR') else os.path.join(HOME, '.claude.json')
+    email = (read_json(cfg, {}).get('oauthAccount') or {}).get('emailAddress', 'not logged in')
+    return f"{email} ({CLAUDE_DIR.replace(HOME, '~')})"
+
+
 def trusted(path):
     """Claude Code asked once whether to trust this folder (or a parent) and got a yes."""
     cfg = os.path.join(CLAUDE_DIR, '.claude.json') if os.environ.get('CLAUDE_CONFIG_DIR') else os.path.join(HOME, '.claude.json')
@@ -234,7 +244,7 @@ def start():
         sys.exit('Claude Code does not trust this folder yet, and every window would ask. '
                  'Run `claude` here once, answer "Yes, I trust this folder", exit, then run tuned-team again.')
     last = config(team)
-    print(f'Tuned Team for {team}. Enter keeps the value in [brackets].\n')
+    print(f'Tuned Team for {team}. Account: {account()}. Enter keeps the value in [brackets].\n')
     specialists = ask_number('How many specialists?', last.get('specialists', 2), 1, 100)
     model = ask('Model for the specialists (opus/sonnet)? The director always runs on opus.',
                 last.get('model', 'opus'), ['opus', 'sonnet'])
