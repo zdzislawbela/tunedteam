@@ -3,10 +3,13 @@
 A multi-agent dev environment for Claude Code. One command opens a team of
 Claude Code sessions in tmux, one tab each:
 
-- **director**: the only one you talk to. Turns what you want into tasks.
-- **managers**: each looks after a group of specialists and hands them tasks.
-  Managers solve problems among themselves; the director gets only what you must see.
+- **director**: the only one you talk to. Turns what you want into tasks, hands them to
+  the specialists and watches them.
 - **specialists**: do the work (code, design, copy, research), each on its own branch.
+
+Two levels on purpose: following Anthropic's "Building effective agents" (start simple,
+add a layer only when it measurably helps), and an earlier measurement where a middle
+layer of managers cost 2-3x the tokens per commit for about 14% more commits.
 
 ## Install
 
@@ -26,11 +29,11 @@ In a project folder:
 tuned-team
 ```
 
-It asks for the number of specialists and managers, the model, who decides on push
+It asks for the number of specialists, the model, who decides on push
 and release, and whether to read notifications or only questions aloud. The director
 answers in the language you write in; agents write to each other in English. Then the tabs open and you talk to the director (tab 0). The last tab, `shell · last resort`,
 is a plain terminal for you in the project folder, for when you have to type something yourself.
-All names are in English (`director`, `manager-N`, `specialist-N`, `shell`): they are also
+All names are in English (`director`, `specialist-N`, `shell`): they are also
 the addresses agents write to and the names commands take.
 
 Tabs can be clicked. tmux keys: `Ctrl-b w` all windows, `Ctrl-b c` one more terminal of your own, `Ctrl-b 0` the director, `Ctrl-b n` / `p` next / previous,
@@ -46,8 +49,8 @@ Every window shows one plain status line: `repo (branch) | model | ctx %`.
 | `tuned-team report start\|eta\|done` | a specialist writes its state into the table |
 | `tuned-team worktree BRANCH [BASE]` | new branch + worktree in `<repo>-worktrees.noindex/` next to the repo (Spotlight skips `.noindex` folders), node_modules cloned, .env.local copied |
 | `tuned-team check [--timeout S] CMD` | runs the full check once one of the 2 machine slots is free (exit 3: no slot, nothing ran) |
-| `tuned-team done` | task merged, nothing open: the window restarts with a fresh context |
-| `tuned-team add manager\|specialist` | opens one more window |
+| `tuned-team done` | task merged: the window restarts with a fresh context; refuses while the task's worktree or branch is still there |
+| `tuned-team add` | opens one more specialist |
 | `tuned-team restart NAME\|self` | restarts a window with a fresh context |
 | `tuned-team close-all [--force]` | lists unmerged work; with none (or `--force`) closes every window |
 
@@ -62,7 +65,7 @@ Only the Tuned Team and VS Code memory figures were measured, on a 48 GB M4 Pro.
 
 | Tool | What it is | Who splits the work | Each task isolated | 16 agents on one laptop | Notes |
 |---|---|---|---|---|---|
-| **Tuned Team** | terminal (tmux), one command | the agents: director → managers → specialists; you talk only to the director | git worktree per task | yes: a fresh session uses ~370 MB (measured), so 16 are roughly 6-10 GB; should fit a 16 GB MacBook Air, not tested there | roles, quality gate before merge, machine limits (2 checks, 4 dev servers), read-aloud |
+| **Tuned Team** | terminal (tmux), one command | the agents: the director hands out and checks the work; you talk only to the director | git worktree per task | yes: a fresh session uses ~370 MB (measured), so 16 are roughly 6-10 GB; should fit a 16 GB MacBook Air, not tested there | roles, quality gate before merge, machine limits (2 checks, 4 dev servers), read-aloud |
 | Claude Squad | terminal (tmux) with a session switcher | you: you prompt each agent and review each diff | git worktree per session | likely yes, same tmux model | session manager, no coordination between agents; AGPL-3.0 |
 | Claude Code agent teams | built into Claude Code, experimental | a lead agent | worktree support | likely yes, panes need tmux or iTerm2 | off by default; more tokens than subagents |
 | VS Code + Claude Code panels | Electron editor | you | your own scripts | **no** in our use: at 8-10 long sessions the window froze (one renderer process at 1.4 GB and 100% of one core, measured) | every panel is drawn by one window process |
@@ -77,9 +80,9 @@ work, so one person can run 16 of them without switching between windows.
 
 ## How it works
 
-- Roles: `roles/team.md` (rules for everyone) plus `roles/director.md`, `manager.md` or
-  `specialist.md`, passed with `--append-system-prompt-file`.
-- Specialist N belongs to manager `((N - 1) % managers) + 1`.
+- Roles: `roles/team.md` (rules for everyone) plus `roles/director.md` or
+  `roles/specialist.md`, passed with `--append-system-prompt-file`.
+- The director's handover before a fresh start goes to `~/.tuned-team/teams/<repo>/handover.md`.
 - State per team: `~/.tuned-team/teams/<repo>/` (answers, reports, generated prompts and settings).
 - tmux runs its own server (`tmux -L tuned`) with `tmux.conf` from this repo, so your own tmux is untouched.
 - Every window starts in auto mode. Speaking aloud uses macOS `say`, with a Polish voice

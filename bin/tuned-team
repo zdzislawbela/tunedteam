@@ -2,16 +2,16 @@
 """Tuned Team: a multi-agent dev environment for Claude Code, in tmux.
 
 The owner runs only `tuned-team` in a project folder: a few questions, then one
-tmux session opens with a tab per agent. You talk to the director; managers look
-after the specialists; specialists do the work. The other commands are for the agents.
+tmux session opens with a tab per agent. You talk to the director; the director hands
+tasks to the specialists, who do the work. The other commands are for the agents.
 
   tuned-team                            ask, then start the team for this folder (last tab: your own shell)
   tuned-team status                     team table: who works, who waits for the owner, context
   tuned-team report start|eta|done ...  a specialist writes its state into the table
   tuned-team worktree BRANCH [BASE]      new branch + worktree next to the repo, hidden from Spotlight
   tuned-team check [--timeout S] CMD..  run the full check once one of the 2 machine slots is free
-  tuned-team done                       task merged, nothing open: restart this window fresh
-  tuned-team add manager|specialist     open one more window
+  tuned-team done                       task merged, worktree and branch gone: restart this window fresh
+  tuned-team add                        open one more specialist
   tuned-team restart NAME               restart a window with a fresh context
   tuned-team close-all [--force]        close every window (lists unmerged work first)
   tuned-team statusline                 Claude Code status line (JSON on stdin)
@@ -31,7 +31,7 @@ CONTROL = {
     'owner': "Control mode for this project: THE OWNER DECIDES. Release, push, deploy and changes to settings or "
              "permissions wait for a yes from the owner, given after you show the exact repo, branch and commits. "
              "The owner pushes by hand: give them the exact command.",
-    'team': "Control mode for this project: THE TEAM DECIDES. manager-1 releases on its own when there are new merged "
+    'team': "Control mode for this project: THE TEAM DECIDES. The director releases on its own when there are new merged "
             "commits on the base branch; the team decides each step itself. Permission prompts and sandbox blocks "
             "still go to the owner.",
 }
@@ -107,11 +107,6 @@ def windows(team):
     return [(int(i), n, int(p)) for i, n, p in (l.split('\t') for l in out.splitlines() if l.count('\t') == 2)]
 
 
-def manager_of(k, managers):
-    """Specialist k belongs to manager ((k - 1) % managers) + 1."""
-    return f'manager-{(k - 1) % max(managers, 1) + 1}'
-
-
 def numbers(team, role):
     return sorted(int(m.group(1)) for _, n, _ in windows(team) if (m := re.fullmatch(rf'{role}-(\d+)', n)))
 
@@ -125,25 +120,21 @@ def me():
 
 # ---------- prompts and launching ----------
 
+def handover_path(team):
+    return os.path.join(state_dir(team), 'handover.md')
+
+
 def team_lines(name, cfg, team):
     """Who this window works with, from the windows that are open now."""
-    m = cfg['managers']
     specs = numbers(team, 'specialist') or list(range(1, cfg['specialists'] + 1))
-    mine = lambda j: [f'specialist-{k}' for k in specs if manager_of(k, m) == f'manager-{j}']
     if name == 'director':
-        lines = [f"- manager-{j}: looks after {', '.join(mine(j)) or 'nobody yet'}" for j in range(1, m + 1)]
-        return 'Your team:\n' + '\n'.join(lines)
-    if name.startswith('manager-'):
-        j = int(name.split('-')[1])
-        others = [f'manager-{i}' for i in range(1, m + 1) if i != j]
-        return (f"You are {name}. Your specialists: {', '.join(mine(j)) or 'none yet (add one with `tuned-team add specialist`)'}."
-                f" Other managers: {', '.join(others) or 'none, you are the only one'}.")
-    k = int(name.split('-')[1])
-    return f'You are {name}. Your manager: {manager_of(k, m)}.'
+        return (f"Your specialists: {', '.join(f'specialist-{k}' for k in specs)}. "
+                f"Your handover file: {handover_path(team)}")
+    return f'You are {name}. Tasks come from the director.'
 
 
 def prompt_file(team, name, cfg):
-    role = 'specialist' if name.startswith('specialist-') else 'manager' if name.startswith('manager-') else 'director'
+    role = 'specialist' if name.startswith('specialist-') else 'director'
     parts = [open(os.path.join(ROLES, 'team.md')).read(), open(os.path.join(ROLES, f'{role}.md')).read(),
              team_lines(name, cfg, team),
              LANGUAGE,
@@ -191,11 +182,10 @@ def launch(team, name, cfg, first=''):
 def first_message(name, cfg, restarted=False):
     if name == 'director':
         if restarted:
-            return 'You were restarted with a fresh context. Run `tuned-team status` and ask manager-1 for the handover.'
-        return (f"start. Team: {cfg['managers']} manager(s), {cfg['specialists']} specialist(s). "
+            return ('You were restarted with a fresh context. Read your handover file, run `tuned-team status`, '
+                    'then continue where the handover says.')
+        return (f"start. Team: {cfg['specialists']} specialist(s). "
                 'Tell the owner who is on the team, the control mode, and that you are ready for a task.')
-    if name.startswith('manager-') and restarted:
-        return 'You were restarted with a fresh context. Run `tuned-team status`; ask the director what is open for you.'
     return ''
 
 
@@ -246,14 +236,13 @@ def start():
     last = config(team)
     print(f'Tuned Team for {team}. Enter keeps the value in [brackets].\n')
     specialists = ask_number('How many specialists?', last.get('specialists', 2), 1, 100)
-    managers = ask_number('How many managers?', last.get('managers', max(1, specialists // 10)), 1, max(1, specialists))
-    model = ask('Model for managers and specialists (opus/sonnet)? The director always runs on opus.',
+    model = ask('Model for the specialists (opus/sonnet)? The director always runs on opus.',
                 last.get('model', 'opus'), ['opus', 'sonnet'])
     control = ask('Who decides on push, release and deploy (owner/team)?', last.get('control', 'owner'), ['owner', 'team'])
     speak_all = ask('Read all notifications aloud (y/n)?', 'y' if last.get('speak') == 'all' else 'n', ['y', 'n'])
     speak = 'all' if speak_all == 'y' else (
         'questions' if ask('Read aloud only questions for you (y/n)?', 'n' if last.get('speak') == 'off' else 'y', ['y', 'n']) == 'y' else 'off')
-    cfg = dict(specialists=specialists, managers=managers, model=model, control=control, speak=speak,
+    cfg = dict(specialists=specialists, model=model, control=control, speak=speak,
                cwd=os.getcwd())
     write_json(os.path.join(state_dir(team), 'config.json'), cfg)
     write_json(os.path.join(state_dir(team), 'reports.json'), {})
@@ -262,9 +251,7 @@ def start():
     r = tmux('new-session', '-d', '-s', team, '-n', 'director', '-c', cfg['cwd'], *env, cmd)
     if r.returncode:
         sys.exit(f'tmux could not start: {r.stderr.strip()}')
-    print(f'Opening the director, {managers} manager(s) and {specialists} specialist(s)...')
-    for j in range(1, managers + 1):
-        open_window(team, f'manager-{j}', cfg)
+    print(f'Opening the director and {specialists} specialist(s)...')
     for k in range(1, specialists + 1):
         open_window(team, f'specialist-{k}', cfg)
         time.sleep(0.3)  # 100 claudes starting in the same second choke the machine
@@ -284,18 +271,12 @@ def attach(team):
 
 # ---------- agents' commands ----------
 
-def add(role):
-    if role not in ('manager', 'specialist'):
-        sys.exit('Usage: tuned-team add manager|specialist')
+def add():
     team = team_name()
     cfg = config(team)
-    k = max(numbers(team, role) or [0]) + 1
-    name = f'{role}-{k}'
-    if role == 'manager':
-        cfg['managers'] = max(cfg['managers'], k)
-        write_json(os.path.join(state_dir(team), 'config.json'), cfg)
+    name = f'specialist-{max(numbers(team, "specialist") or [0]) + 1}'
     open_window(team, name, cfg)
-    print(f'Opened {name}' + (f' (manager: {manager_of(k, cfg["managers"])})' if role == 'specialist' else '') + '.')
+    print(f'Opened {name}.')
 
 
 def restart(name):
@@ -318,7 +299,19 @@ def restart(name):
 
 
 def done():
-    """Task merged, worktree and branch removed: the window starts over with a fresh context."""
+    """Task merged, worktree and branch removed: the window starts over with a fresh context.
+    Refuses while the worktree or an unmerged branch from `tuned-team worktree` is still there."""
+    name, team = me(), team_name()
+    r = read_json(os.path.join(state_dir(team), 'reports.json'), {}).get(name, {})
+    left = []
+    if r.get('worktree') and os.path.isdir(r['worktree']):
+        left.append(f"worktree {r['worktree']} (remove it: git worktree remove {r['worktree']})")
+    if r.get('branch'):
+        top = repo_root(os.getcwd())
+        if run(['git', '-C', top, 'rev-parse', '--verify', '--quiet', f"refs/heads/{r['branch']}"]).returncode == 0:
+            left.append(f"branch {r['branch']} (merge it, then delete it: git branch -d {r['branch']})")
+    if left:
+        sys.exit('Still open, the window keeps its context:\n' + '\n'.join(f'  - {x}' for x in left))
     report(['done'])
     restart('self')
 
@@ -341,6 +334,11 @@ def worktree(args):
         run(['cp', '-cR', os.path.join(top, 'node_modules'), os.path.join(path, 'node_modules')])
     if os.path.exists(os.path.join(top, '.env.local')):
         run(['cp', os.path.join(top, '.env.local'), os.path.join(path, '.env.local')])
+    if os.environ.get('TUNED_NAME'):
+        rp = os.path.join(state_dir(team_name()), 'reports.json')
+        reports = read_json(rp, {})
+        reports.setdefault(os.environ['TUNED_NAME'], {}).update(worktree=path, branch=branch)
+        write_json(rp, reports)
     print(f'Worktree for {branch} (from {base}): {path}')
 
 
@@ -457,11 +455,10 @@ def short(s, n):
 
 def status():
     team = team_name()
-    cfg = config(team)
     reports = read_json(os.path.join(state_dir(team), 'reports.json'), {})
     rows = []
     for idx, name, pane in windows(team):
-        if not re.fullmatch(r'director|(manager|specialist)-\d+', name):
+        if not re.fullmatch(r'director|specialist-\d+', name):
             continue  # the owner's shell and any tab the owner opened
         pid = claude_pid(pane)
         sess = read_json(os.path.join(CLAUDE_DIR, 'sessions', f'{pid}.json'), {}) if pid else {}
@@ -479,13 +476,7 @@ def status():
             state = 'task open'
         else:
             state = 'free'
-        if name == 'director':
-            role = 'talks to the owner'
-        elif name.startswith('manager-'):
-            role = ', '.join(n for _, n, _ in windows(team) if n.startswith('specialist-')
-                             and manager_of(int(n.split('-')[1]), cfg.get('managers', 1)) == name) or 'no specialists'
-        else:
-            role = manager_of(int(name.split('-')[1]), cfg.get('managers', 1))
+        role = 'talks to the owner' if name == 'director' else (rep.get('branch', '') if rep and not rep.get('done') else '')
         doing = rep.get('what', '') if rep else ''
         rss = run(['ps', '-o', 'rss=', '-p', str(pid)]).stdout.strip() if pid else ''
         ram = f'{int(rss) // 1024} MB' if rss.isdigit() else '–'
@@ -495,7 +486,7 @@ def status():
     print(f"{team} · {time.strftime('%H:%M')} · specialists: {count(lambda s: s in ('working', 'task open'))} working · "
           f"{count(lambda s: s.startswith('waiting'))} waiting for the owner · {count(lambda s: s == 'free')} free")
     print()
-    print('| # | Window | Works with | Ctx | RAM | State | ETA | Doing |')
+    print('| # | Window | Branch | Ctx | RAM | State | ETA | Doing |')
     print('|---|---|---|---|---|---|---|---|')
     for idx, name, role, ctx, ram, state, eta, doing in rows:
         print(f'| {idx} | {name} | {role} | {ctx} | {ram} | {short(state, 40)} | {short(eta, 12)} | {short(doing, 48)} |')
@@ -552,7 +543,7 @@ def main():
     elif cmd == 'done':
         done()
     elif cmd == 'add':
-        add(a[1] if len(a) > 1 else '')
+        add()
     elif cmd == 'restart' and len(a) > 1:
         restart(a[1])
     elif cmd == 'close-all':
