@@ -26,13 +26,12 @@ In a project folder:
 tuned-team
 ```
 
-It asks for the language, the number of specialists and managers, the model, who
-decides on push and release, and whether to read notifications or only questions
-aloud. Then the tabs open and you talk to the director (tab 0). The last tab, `shell · last resort`,
+It asks for the number of specialists and managers, the model, who decides on push
+and release, and whether to read notifications or only questions aloud. The director
+answers in the language you write in; agents write to each other in English. Then the tabs open and you talk to the director (tab 0). The last tab, `shell · last resort`,
 is a plain terminal for you in the project folder, for when you have to type something yourself.
-Tab labels follow the language you pick (in Polish: `tu rozmawiasz`, `ostatnia deska ratunku`).
-The names themselves (`director`, `manager-N`, `specialist-N`, `shell`) stay the same in every
-language: they are also the addresses agents write to and the names commands take.
+All names are in English (`director`, `manager-N`, `specialist-N`, `shell`): they are also
+the addresses agents write to and the names commands take.
 
 Tabs can be clicked. tmux keys: `Ctrl-b w` all windows, `Ctrl-b c` one more terminal of your own, `Ctrl-b 0` the director, `Ctrl-b n` / `p` next / previous,
 `Ctrl-b d` detach (the team keeps running; `tuned-team` again attaches).
@@ -83,7 +82,8 @@ work, so one person can run 16 of them without switching between windows.
 - Specialist N belongs to manager `((N - 1) % managers) + 1`.
 - State per team: `~/.tuned-team/teams/<repo>/` (answers, reports, generated prompts and settings).
 - tmux runs its own server (`tmux -L tuned`) with `tmux.conf` from this repo, so your own tmux is untouched.
-- Every window starts in auto mode. Speaking aloud uses macOS `say`.
+- Every window starts in auto mode. Speaking aloud uses macOS `say`, with a Polish voice
+for text with Polish letters.
 
 ## Limits
 

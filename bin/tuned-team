@@ -43,13 +43,15 @@ SPEAK = {
                  "Never for status. No tables, paths or code inside it.",
     'off': "Reading aloud is OFF: never write a <speak> tag.",
 }
-WAITS = {'pl': '{name} czeka na Ciebie', 'en': '{name} is waiting for you'}
-# Tab labels in the language chosen at start (tmux.conf shows them).
-LABELS = {
-    'pl': {'@talk': 'tu rozmawiasz', '@shell': 'ostatnia deska ratunku', '@keys': 'Ctrl-b w: wszystkie okna'},
-    'en': {'@talk': 'you talk here', '@shell': 'last resort', '@keys': 'Ctrl-b w: all windows'},
-}
-VOICE = {'pl': ['-v', 'Zosia'], 'en': []}
+LANGUAGE = ("Language: reply to the owner in the language the owner writes in. "
+            "Write to teammates in English.")
+WAIT = '{name} is waiting for you'
+POLISH = re.compile('[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]')
+
+
+def voice(text):
+    """A Polish voice for Polish text (its letters give it away), the system voice otherwise."""
+    return ['-v', 'Zosia'] if POLISH.search(text) else []
 
 
 # ---------- small helpers ----------
@@ -144,7 +146,7 @@ def prompt_file(team, name, cfg):
     role = 'specialist' if name.startswith('specialist-') else 'manager' if name.startswith('manager-') else 'director'
     parts = [open(os.path.join(ROLES, 'team.md')).read(), open(os.path.join(ROLES, f'{role}.md')).read(),
              team_lines(name, cfg, team),
-             f"Language: reply to the owner and write to teammates in {'Polish' if cfg['lang'] == 'pl' else 'English'}.",
+             LANGUAGE,
              CONTROL[cfg['control']]]
     if role == 'director':
         parts.append(SPEAK[cfg['speak']])
@@ -243,7 +245,6 @@ def start():
                  'Run `claude` here once, answer "Yes, I trust this folder", exit, then run tuned-team again.')
     last = config(team)
     print(f'Tuned Team for {team}. Enter keeps the value in [brackets].\n')
-    lang = ask('Language (pl/en)?', last.get('lang', 'en'), ['pl', 'en'])
     specialists = ask_number('How many specialists?', last.get('specialists', 2), 1, 100)
     managers = ask_number('How many managers?', last.get('managers', max(1, specialists // 10)), 1, max(1, specialists))
     model = ask('Model for managers and specialists (opus/sonnet)? The director always runs on opus.',
@@ -252,7 +253,7 @@ def start():
     speak_all = ask('Read all notifications aloud (y/n)?', 'y' if last.get('speak') == 'all' else 'n', ['y', 'n'])
     speak = 'all' if speak_all == 'y' else (
         'questions' if ask('Read aloud only questions for you (y/n)?', 'n' if last.get('speak') == 'off' else 'y', ['y', 'n']) == 'y' else 'off')
-    cfg = dict(lang=lang, specialists=specialists, managers=managers, model=model, control=control, speak=speak,
+    cfg = dict(specialists=specialists, managers=managers, model=model, control=control, speak=speak,
                cwd=os.getcwd())
     write_json(os.path.join(state_dir(team), 'config.json'), cfg)
     write_json(os.path.join(state_dir(team), 'reports.json'), {})
@@ -261,8 +262,6 @@ def start():
     r = tmux('new-session', '-d', '-s', team, '-n', 'director', '-c', cfg['cwd'], *env, cmd)
     if r.returncode:
         sys.exit(f'tmux could not start: {r.stderr.strip()}')
-    for k, v in LABELS[lang].items():
-        tmux('set-option', '-t', team, k, v)
     print(f'Opening the director, {managers} manager(s) and {specialists} specialist(s)...')
     for j in range(1, managers + 1):
         open_window(team, f'manager-{j}', cfg)
@@ -528,13 +527,12 @@ def statusline():
 
 def speak():
     d = json.loads(sys.stdin.read() or '{}')
-    lang = config(team_name()).get('lang', 'en')
     if d.get('hook_event_name') == 'Notification':
-        text = WAITS[lang].format(name=os.environ.get('TUNED_NAME', 'Claude').replace('-', ' '))
+        text = WAIT.format(name=os.environ.get('TUNED_NAME', 'Claude').replace('-', ' '))
     else:
         text = '\n'.join(re.findall(r'<speak>(.*?)</speak>', d.get('last_assistant_message') or '', re.S))
     if text.strip():
-        subprocess.Popen(['say', *VOICE[lang], text], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        subprocess.Popen(['say', *voice(text), text], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          start_new_session=True)
 
 
