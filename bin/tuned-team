@@ -5,7 +5,7 @@ The owner runs only `tuned-team` in a project folder: a few questions, then one
 tmux session opens with a tab per agent. You talk to the director; managers look
 after the specialists; specialists do the work. The other commands are for the agents.
 
-  tuned-team                            ask, then start the team for this folder
+  tuned-team                            ask, then start the team for this folder (last tab: your own shell)
   tuned-team status                     team table: who works, who waits for the owner, context
   tuned-team report start|eta|done ...  a specialist writes its state into the table
   tuned-team worktree BRANCH [BASE]      new branch + worktree next to the repo, hidden from Spotlight
@@ -44,6 +44,11 @@ SPEAK = {
     'off': "Reading aloud is OFF: never write a <speak> tag.",
 }
 WAITS = {'pl': '{name} czeka na Ciebie', 'en': '{name} is waiting for you'}
+# Tab labels in the language chosen at start (tmux.conf shows them).
+LABELS = {
+    'pl': {'@talk': 'tu rozmawiasz', '@shell': 'ostatnia deska ratunku', '@keys': 'Ctrl-b w: wszystkie okna'},
+    'en': {'@talk': 'you talk here', '@shell': 'last resort', '@keys': 'Ctrl-b w: all windows'},
+}
 VOICE = {'pl': ['-v', 'Zosia'], 'en': []}
 
 
@@ -256,12 +261,16 @@ def start():
     r = tmux('new-session', '-d', '-s', team, '-n', 'director', '-c', cfg['cwd'], *env, cmd)
     if r.returncode:
         sys.exit(f'tmux could not start: {r.stderr.strip()}')
+    for k, v in LABELS[lang].items():
+        tmux('set-option', '-t', team, k, v)
     print(f'Opening the director, {managers} manager(s) and {specialists} specialist(s)...')
     for j in range(1, managers + 1):
         open_window(team, f'manager-{j}', cfg)
     for k in range(1, specialists + 1):
         open_window(team, f'specialist-{k}', cfg)
         time.sleep(0.3)  # 100 claudes starting in the same second choke the machine
+    # The owner's own plain terminal in the project folder, the last tab.
+    tmux('new-window', '-d', '-t', f'={team}:', '-n', 'shell', '-c', cfg['cwd'])
     attach(team)
 
 
@@ -453,6 +462,8 @@ def status():
     reports = read_json(os.path.join(state_dir(team), 'reports.json'), {})
     rows = []
     for idx, name, pane in windows(team):
+        if not re.fullmatch(r'director|(manager|specialist)-\d+', name):
+            continue  # the owner's shell and any tab the owner opened
         pid = claude_pid(pane)
         sess = read_json(os.path.join(CLAUDE_DIR, 'sessions', f'{pid}.json'), {}) if pid else {}
         last, pending, tokens, model = transcript(sess['sessionId']) if sess.get('sessionId') else ('', None, 0, '')
