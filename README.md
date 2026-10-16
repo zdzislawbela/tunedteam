@@ -15,8 +15,8 @@ layer of managers cost 2-3x the tokens per commit for about 14% more commits.
 
 ```sh
 brew install tmux
-git clone git@github.com:zdzislawbela/tuned-team.git ~/tools/tuned-team
-~/tools/tuned-team/install.sh
+git clone git@github.com:zdzislawbela/tuned-team.git ~/repos/tuned-team
+~/repos/tuned-team/install.sh
 ```
 
 Works in any terminal (Ghostty, iTerm2, Terminal). Needs `tmux`, `claude`, `python3`, `git`.
