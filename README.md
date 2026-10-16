@@ -31,6 +31,8 @@ decides on push and release, and whether to read notifications or only questions
 aloud. Then the tabs open and you talk to the director (tab 0). The last tab, `shell · last resort`,
 is a plain terminal for you in the project folder, for when you have to type something yourself.
 Tab labels follow the language you pick (in Polish: `tu rozmawiasz`, `ostatnia deska ratunku`).
+The names themselves (`director`, `manager-N`, `specialist-N`, `shell`) stay the same in every
+language: they are also the addresses agents write to and the names commands take.
 
 Tabs can be clicked. tmux keys: `Ctrl-b w` all windows, `Ctrl-b c` one more terminal of your own, `Ctrl-b 0` the director, `Ctrl-b n` / `p` next / previous,
 `Ctrl-b d` detach (the team keeps running; `tuned-team` again attaches).
