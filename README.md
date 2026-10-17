@@ -192,6 +192,7 @@ director uses the same command when you ask for something recurring.
 | `tunedteam status` | team table: who works, who waits for the owner, context, RAM, ETA |
 | `tunedteam report start\|eta\|done` | a specialist writes its state into the table |
 | `tunedteam worktree [--repo PATH] BRANCH [BASE]` | new branch + worktree in `<repo>-worktrees.noindex/` next to the repo (`--repo`: a connected repo) (Spotlight skips `.noindex` folders), node_modules cloned, .env.local copied |
+| `tunedteam owner-run < commands` | saves commands the owner has to run as a script and prints one string without spaces (`~/.tunedteam/run/7`): double-click it, copy, paste into the shell tab or after `!` in a window |
 | `tunedteam check [--timeout S] CMD` | runs the full check once one of the 2 machine slots is free (exit 3: no slot, nothing ran) |
 | `tunedteam done` | task merged: the window restarts with a fresh context; refuses while the task's worktree or branch is still there |
 | `tunedteam add` | opens one more specialist |

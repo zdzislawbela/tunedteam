@@ -14,6 +14,7 @@ tasks to the specialists, who do the work. The other commands are for the agents
   tunedteam schedule [add NAME HH:MM CMD | run|log|off|on|rm NAME]  commands run every day by launchd
   tunedteam report start|eta|done ...  a specialist writes its state into the table
   tunedteam worktree [--repo PATH] BRANCH [BASE]  new branch + worktree next to the repo, hidden from Spotlight
+  tunedteam owner-run < commands       save commands for the owner; prints one string to copy (~/.tunedteam/run/N)
   tunedteam check [--timeout S] CMD..  run the full check once one of the 2 machine slots is free
   tunedteam done                       task merged, worktree and branch gone: restart this window fresh
   tunedteam add                        open one more specialist
@@ -809,6 +810,26 @@ def check(args):
         os.execvp(args[0], args)
 
 
+def owner_run():
+    """Commands for the owner, from stdin, saved as a script that runs in the current folder. Prints one string
+    without spaces (~/.tunedteam/run/N): a double click selects all of it, so the owner copies it in one go."""
+    body = sys.stdin.read().strip()
+    if not body:
+        sys.exit('Usage: tunedteam owner-run <<\'EOF\'\n<commands>\nEOF')
+    d = os.path.join(HOME, '.tunedteam', 'run')
+    os.makedirs(d, exist_ok=True)
+    n = max([int(f) for f in os.listdir(d) if f.isdigit()] or [0]) + 1
+    for f in os.listdir(d):  # keep the last 50
+        if f.isdigit() and int(f) <= n - 50:
+            os.remove(os.path.join(d, f))
+    path = os.path.join(d, str(n))
+    with open(path, 'w') as f:
+        f.write(f'#!/bin/sh\n# saved by {os.environ.get("TUNED_NAME", "?")} at {time.strftime("%Y-%m-%d %H:%M")}\n'
+                f'set -ex\ncd {shlex.quote(os.getcwd())}\n{body}\n')
+    os.chmod(path, 0o755)
+    print(path.replace(HOME, '~', 1))
+
+
 def close_all(force):
     team = team_name()
     tops = [repo_root(os.getcwd())] + [r for r in config(team).get('repos', []) if os.path.isdir(r)]
@@ -1349,6 +1370,8 @@ def main():
         report(a[1:])
     elif cmd == 'worktree':
         worktree(a[1:])
+    elif cmd == 'owner-run':
+        owner_run()
     elif cmd == 'check':
         check(a[1:])
     elif cmd == 'done':
