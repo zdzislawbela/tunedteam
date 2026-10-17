@@ -305,6 +305,22 @@ def open_window(team, name, cfg):
 
 # ---------- the owner's command: ask, then start ----------
 
+def list_view(options, i, top, mark):
+    """The rows of a pick list that fit the terminal, scrolled so row i shows; labels cut to the width
+    (a wrapped line would break the redraw). Returns (lines, top)."""
+    size = shutil.get_terminal_size()
+    rows = min(len(options), max(3, size.lines - 4))
+    top = min(max(top, i - rows + 1), i)
+    lines = []
+    for k in range(top, top + rows):
+        label = mark(k) + options[k][1]
+        if len(label) > size.columns - 6:
+            label = label[:size.columns - 7] + '…'
+        more = '↑' if k == top and top > 0 else '↓' if k == top + rows - 1 and top + rows < len(options) else ' '
+        lines.append(f'{more} \033[1m> {label}\033[0m' if k == i else f'{more}   {label}')
+    return lines, top
+
+
 def select(question, options, default=None):
     """Pick one option with the arrow keys and Enter. options: [(value, label)]; returns the value.
     Without a terminal (a pipe, a script) it reads one line: a number, a value, or Enter for the default."""
@@ -320,15 +336,17 @@ def select(question, options, default=None):
     old = termios.tcgetattr(fd)
     print(question)
     sys.stdout.write('\033[?25l')  # hide the cursor while choosing
-    def draw(first=False):
-        if not first:
-            sys.stdout.write(f'\033[{len(options)}A')
-        for k, (_, label) in enumerate(options):
-            sys.stdout.write('\r\033[2K' + (f'  \033[1m> {label}\033[0m' if k == i else f'    {label}') + '\n')
+    top, shown = 0, 0
+    def draw():
+        nonlocal top, shown
+        lines, top = list_view(options, i, top, lambda k: '')
+        sys.stdout.write(f'\033[{shown}A' if shown else '')
+        sys.stdout.write(''.join(f'\r\033[2K{l}\n' for l in lines))
         sys.stdout.flush()
+        shown = len(lines)
     try:
         tty.setcbreak(fd)
-        draw(True)
+        draw()
         while True:
             c = os.read(fd, 1)
             if not c:
@@ -347,7 +365,7 @@ def select(question, options, default=None):
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
         sys.stdout.write('\033[?25h')
-    sys.stdout.write(f'\033[{len(options)}A\033[J  {options[i][1]}\n')
+    sys.stdout.write(f'\033[{shown}A\033[J  {options[i][1]}\n')
     return values[i]
 
 
@@ -367,16 +385,17 @@ def select_many(question, options, chosen=()):
     i = 0
     print(question + ' (Space ticks, Enter confirms)')
     sys.stdout.write('\033[?25l')
-    def draw(first=False):
-        if not first:
-            sys.stdout.write(f'\033[{len(options)}A')
-        for k, (v, label) in enumerate(options):
-            box = '[x]' if v in ticked else '[ ]'
-            sys.stdout.write('\r\033[2K' + (f'  \033[1m> {box} {label}\033[0m' if k == i else f'    {box} {label}') + '\n')
+    top, shown = 0, 0
+    def draw():
+        nonlocal top, shown
+        lines, top = list_view(options, i, top, lambda k: '[x] ' if values[k] in ticked else '[ ] ')
+        sys.stdout.write(f'\033[{shown}A' if shown else '')
+        sys.stdout.write(''.join(f'\r\033[2K{l}\n' for l in lines))
         sys.stdout.flush()
+        shown = len(lines)
     try:
         tty.setcbreak(fd)
-        draw(True)
+        draw()
         while True:
             c = os.read(fd, 1)
             if not c:
@@ -399,7 +418,7 @@ def select_many(question, options, chosen=()):
         sys.stdout.write('\033[?25h')
     out = [v for v in values if v in ticked]
     labels = [l for v, l in options if v in ticked]
-    sys.stdout.write(f'\033[{len(options)}A\033[J  {", ".join(labels) or "none"}\n')
+    sys.stdout.write(f'\033[{shown}A\033[J  {", ".join(labels) or "none"}\n')
     return out
 
 
@@ -535,7 +554,7 @@ def ask_folder():
 
 def choose_folder():
     """First question: which project. Current folder (if a repo), recent teams, repos in ~/repos, or a typed path."""
-    paths = repo_candidates()[:20]
+    paths = repo_candidates()
     other = '__other__'
     pick = select('Project folder:', [(d, d.replace(HOME, '~')) for d in paths] + [(other, 'Other folder…')])
     if pick == other:
@@ -558,7 +577,7 @@ def choose_repos(last):
     # Nearest first: the repos sharing the longest part of the path with this one (a backend next to its UI).
     near = lambda d: -len(os.path.commonpath([d, main]))
     paths = [d for d in before + sorted(repo_candidates(), key=near) if d != main]
-    paths = list(dict.fromkeys(paths))[:30]
+    paths = list(dict.fromkeys(paths))
     other = '__other__'
     picked = select_many('Connected repos:', [(d, d.replace(HOME, '~')) for d in paths] + [(other, 'Other folder…')],
                          before)
