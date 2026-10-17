@@ -13,7 +13,7 @@ tasks to the specialists, who do the work. The other commands are for the agents
   tunedteam tasks                      the tasks in progress and the specialists on each
   tunedteam schedule [add NAME HH:MM CMD | run|log|off|on|rm NAME]  commands run every day by launchd
   tunedteam report start|eta|done ...  a specialist writes its state into the table
-  tunedteam worktree BRANCH [BASE]      new branch + worktree next to the repo, hidden from Spotlight
+  tunedteam worktree [--repo PATH] BRANCH [BASE]  new branch + worktree next to the repo, hidden from Spotlight
   tunedteam check [--timeout S] CMD..  run the full check once one of the 2 machine slots is free
   tunedteam done                       task merged, worktree and branch gone: restart this window fresh
   tunedteam add                        open one more specialist
@@ -212,6 +212,13 @@ def team_lines(name, cfg, team):
     mates = [address(team, n) for n in ['director'] + [f'specialist-{k}' for k in specs] if n != name]
     out = (f"Your team: {team} (project {cfg['cwd']}). You are {address(team, name)}. "
            f"Your teammates: {', '.join(mates)}.")
+    if cfg.get('repos'):
+        out += (f" Connected repos, part of the same work: {', '.join(cfg['repos'])}. A task may need changes in "
+                "several of them: say which repo each part belongs to. Read each repo's CLAUDE.md or README for how to "
+                "run it locally. Worktree in a connected repo: `tunedteam worktree --repo <path> <branch>`. "
+                "Something only one copy can run on this Mac (a docker compose stack, a database, a fixed port) has "
+                "one owner at a time: the director names the specialist who runs it, the others use it. A stack that "
+                "mounts a repo folder runs that folder, not your worktree.")
     if name == 'director':
         return out + f' Your handover file: {handover_path(team)}'
     return out + ' Tasks come from the director.'
@@ -267,6 +274,8 @@ def launch(team, name, cfg, first=''):
     cmd = prefix + ['claude', '-n', address(team, name), '--model', model, '--permission-mode', 'auto',
            '--settings', settings_file(team, name, cfg),
            '--append-system-prompt-file', prompt_file(team, name, cfg)]
+    for repo in cfg.get('repos', []):
+        cmd += ['--add-dir', repo]
     if first:
         cmd.append(first)
     env = {'TUNED_TEAM': team, 'TUNED_NAME': name}
@@ -339,6 +348,58 @@ def select(question, options, default=None):
         sys.stdout.write('\033[?25h')
     sys.stdout.write(f'\033[{len(options)}A\033[J  {options[i][1]}\n')
     return values[i]
+
+
+def select_many(question, options, chosen=()):
+    """Tick any number of options: arrows move, Space ticks, Enter confirms. Returns the ticked values.
+    Without a terminal it reads one line: numbers separated by spaces or commas, Enter keeps `chosen`."""
+    values = [v for v, _ in options]
+    ticked = {v for v in chosen if v in values}
+    if not sys.stdin.isatty():
+        a = sys.stdin.readline().strip()
+        if a:
+            ticked = {values[int(n) - 1] for n in re.split(r'[\s,]+', a) if n.isdigit() and 1 <= int(n) <= len(values)}
+        return [v for v in values if v in ticked]
+    import termios, tty
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    i = 0
+    print(question + ' (Space ticks, Enter confirms)')
+    sys.stdout.write('\033[?25l')
+    def draw(first=False):
+        if not first:
+            sys.stdout.write(f'\033[{len(options)}A')
+        for k, (v, label) in enumerate(options):
+            box = '[x]' if v in ticked else '[ ]'
+            sys.stdout.write('\r\033[2K' + (f'  \033[1m> {box} {label}\033[0m' if k == i else f'    {box} {label}') + '\n')
+        sys.stdout.flush()
+    try:
+        tty.setcbreak(fd)
+        draw(True)
+        while True:
+            c = os.read(fd, 1)
+            if not c:
+                break
+            if c == b'\x1b':
+                c += os.read(fd, 2)
+            if c in (b'\r', b'\n'):
+                break
+            if c in (b'\x1b[A', b'k'):
+                i = (i - 1) % len(options)
+            elif c in (b'\x1b[B', b'j'):
+                i = (i + 1) % len(options)
+            elif c == b' ':
+                ticked ^= {values[i]}
+            elif c in (b'\x03', b'q'):
+                raise KeyboardInterrupt
+            draw()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        sys.stdout.write('\033[?25h')
+    out = [v for v in values if v in ticked]
+    labels = [l for v, l in options if v in ticked]
+    sys.stdout.write(f'\033[{len(options)}A\033[J  {", ".join(labels) or "none"}\n')
+    return out
 
 
 def auth_status(config_dir):
@@ -416,8 +477,27 @@ def is_repo(path):
     return run(['git', '-C', path, 'rev-parse', '--git-dir']).returncode == 0
 
 
-def choose_folder():
-    """First question: which project. Current folder (if a repo), recent teams, repos in ~/repos, or a typed path."""
+def find_repos(top, depth=6):
+    """Git repos under `top`, a few levels deep (e.g. ~/repos/work/dev-env/src/app), skipping dependency folders."""
+    found = []
+    top_depth = top.rstrip('/').count('/')
+    for d, subdirs, files in os.walk(top):
+        if '.git' in subdirs:
+            found.append(d)
+        elif '.git' in files:  # a worktree: "gitdir: <main>/.git/worktrees/<name>" points at its main checkout
+            try:
+                m = re.match(r'gitdir: (.+)/\.git/worktrees/', open(os.path.join(d, '.git')).read())
+            except OSError:
+                m = None
+            if m:
+                found.append(m.group(1))
+        subdirs[:] = [s for s in subdirs if s not in ('node_modules', 'vendor', '.git') and not s.endswith('.noindex')
+                      and not s.startswith('.')] if d.count('/') - top_depth < depth else []
+    return sorted(set(found))
+
+
+def repo_candidates():
+    """The repos to offer: current folder (if a repo), recent teams' folders, then repos found in ~/repos."""
     here = os.getcwd()
     recent = []
     for f in glob.glob(os.path.join(HOME, '.tunedteam', 'teams', '*', 'config.json')):
@@ -425,15 +505,17 @@ def choose_folder():
         if cwd and os.path.isdir(cwd):
             recent.append((os.path.getmtime(f), cwd))
     recent = [c for _, c in sorted(recent, reverse=True)]
-    found = sorted(os.path.dirname(g) for g in glob.glob(os.path.join(HOME, 'repos', '*', '.git'))
-                   + glob.glob(os.path.join(HOME, 'repos', '*', '*', '.git')))
-    found = [d for d in found if '.noindex' not in d and not re.search(r'-check-\d+$', d)]
+    found = [d for d in find_repos(os.path.join(HOME, 'repos')) if not re.search(r'-check-\d+$', d)]
     paths = []
-    for d in ([here] if is_repo(here) else []) + recent + found:
-        d = repo_root(d)
+    for d in [repo_root(x) for x in ([here] if is_repo(here) else []) + recent] + found:
         if d not in paths:
             paths.append(d)
-    paths = paths[:20]
+    return paths
+
+
+def choose_folder():
+    """First question: which project. Current folder (if a repo), recent teams, repos in ~/repos, or a typed path."""
+    paths = repo_candidates()[:20]
     other = '__other__'
     pick = select('Project folder:', [(d, d.replace(HOME, '~')) for d in paths] + [(other, 'Other folder…')])
     if pick == other:
@@ -443,6 +525,28 @@ def choose_folder():
         pick = typed
     os.chdir(pick)
     return pick
+
+
+def choose_repos(last):
+    """Other repos the team works on next to this one (e.g. the UI and its backend): every agent may read and
+    change them, worktrees and the close-all check cover them too."""
+    main = repo_root(os.getcwd())
+    before = [r for r in last.get('repos', []) if os.path.isdir(r)]
+    if select('Connect other repos to this team?', [('no', 'no'), ('yes', 'yes, pick them')],
+              'yes' if before else 'no') == 'no':
+        return []
+    paths = [d for d in before + repo_candidates() if d != main]
+    paths = list(dict.fromkeys(paths))[:30]
+    other = '__other__'
+    picked = select_many('Connected repos:', [(d, d.replace(HOME, '~')) for d in paths] + [(other, 'Other folder…')],
+                         before)
+    if other in picked:
+        picked.remove(other)
+        typed = os.path.expanduser(input('Folder: ').strip())
+        if not is_repo(typed):
+            sys.exit(f'Not a git repo: {typed}')
+        picked.append(repo_root(typed))
+    return picked
 
 
 def confirm_full():
@@ -491,7 +595,8 @@ def start():
     if not trusted(os.getcwd()):
         sys.exit('Claude Code does not trust this folder yet on this account, and every window would ask. '
                  'Run `claude` here once, answer "Yes, I trust this folder", exit, then run tunedteam again.')
-    specialists = select('Specialists:', [(n, str(n)) for n in (1, 2, 3, 4, 6, 8, 12, 16)], 16)
+    repos = choose_repos(last)
+    specialists =select('Specialists:', [(n, str(n)) for n in (1, 2, 3, 4, 6, 8, 12, 16)], 16)
     model = select('Model for the specialists (the director always runs on Opus):',
                    [('opus', 'Opus'), ('sonnet', 'Sonnet (uses less of your plan)')], last.get('model', 'opus'))
     # The safe answer is always the default here, whatever was picked last time.
@@ -503,7 +608,7 @@ def start():
     speak = select('Read aloud:', [('off', 'off'), ('questions', 'only questions for you'), ('all', 'everything')],
                    last.get('speak', 'questions'))
     cfg = dict(account=account, subscription=subscription, specialists=specialists, model=model, control=control, db=db, speak=speak,
-               cwd=os.getcwd())
+               cwd=os.getcwd(), repos=repos)
     write_json(os.path.join(state_dir(team), 'config.json'), cfg)
     write_json(os.path.join(state_dir(team), 'reports.json'), {})
 
@@ -626,9 +731,9 @@ def done():
     if r.get('worktree') and os.path.isdir(r['worktree']):
         left.append(f"worktree {r['worktree']} (remove it: git worktree remove {r['worktree']})")
     if r.get('branch'):
-        top = repo_root(os.getcwd())
+        top = r.get('repo') or repo_root(os.getcwd())
         if run(['git', '-C', top, 'rev-parse', '--verify', '--quiet', f"refs/heads/{r['branch']}"]).returncode == 0:
-            left.append(f"branch {r['branch']} (merge it, then delete it: git branch -d {r['branch']})")
+            left.append(f"branch {r['branch']} in {top} (merge it, then delete it: git -C {top} branch -d {r['branch']})")
     if left:
         sys.exit('Still open, the window keeps its context:\n' + '\n'.join(f'  - {x}' for x in left))
     report(['done'])
@@ -638,10 +743,15 @@ def done():
 def worktree(args):
     """New branch + worktree in <repo>-worktrees.noindex/ next to the repo (Spotlight skips .noindex folders).
     node_modules is cloned (APFS clone: seconds, no extra disk) and .env.local copied, if the repo has them."""
+    repo = os.getcwd()
+    if args[:1] == ['--repo'] and len(args) > 1:
+        repo, args = os.path.expanduser(args[1]), args[2:]
+        if not is_repo(repo):
+            sys.exit(f'Not a git repo: {repo}')
     if not args:
-        sys.exit('Usage: tunedteam worktree <branch> [base]')
+        sys.exit('Usage: tunedteam worktree [--repo PATH] <branch> [base]')
     branch = args[0]
-    top = repo_root(os.getcwd())
+    top = repo_root(repo)
     base = args[1] if len(args) > 1 else (
         run(['git', '-C', top, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).stdout.strip().removeprefix('origin/')
         or run(['git', '-C', top, 'branch', '--show-current']).stdout.strip())
@@ -656,7 +766,7 @@ def worktree(args):
     if os.environ.get('TUNED_NAME'):
         rp = os.path.join(state_dir(team_name()), 'reports.json')
         reports = read_json(rp, {})
-        reports.setdefault(os.environ['TUNED_NAME'], {}).update(worktree=path, branch=branch)
+        reports.setdefault(os.environ['TUNED_NAME'], {}).update(worktree=path, branch=branch, repo=top)
         write_json(rp, reports)
     print(f'Worktree for {branch} (from {base}): {path}')
 
@@ -701,13 +811,16 @@ def check(args):
 
 def close_all(force):
     team = team_name()
-    top = repo_root(os.getcwd())
-    base = run(['git', '-C', top, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).stdout.strip().removeprefix('origin/') \
-        or run(['git', '-C', top, 'branch', '--show-current']).stdout.strip()
+    tops = [repo_root(os.getcwd())] + [r for r in config(team).get('repos', []) if os.path.isdir(r)]
     open_work = []
-    if base:
+    for top in tops:
+        base = run(['git', '-C', top, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).stdout.strip().removeprefix('origin/') \
+            or run(['git', '-C', top, 'branch', '--show-current']).stdout.strip()
+        if not base:
+            continue
+        where = f' ({os.path.basename(top)})' if len(tops) > 1 else ''
         for b in run(['git', '-C', top, 'branch', '--format=%(refname:short)', '--no-merged', base]).stdout.split():
-            open_work.append(f'branch {b}: not merged into {base}')
+            open_work.append(f'branch {b}{where}: not merged into {base}')
         for wt in re.findall(r'^worktree (.+)$', run(['git', '-C', top, 'worktree', 'list', '--porcelain']).stdout, re.M):
             if wt != top:
                 open_work.append(f'worktree {wt}')

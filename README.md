@@ -28,6 +28,20 @@ layout.
 To work on Tuned Team itself instead: clone this repo and run `./install.sh`, which links
 `bin/tunedteam` into `~/bin` (needs `tmux`, `claude`, `python3`, `git`).
 
+## Several repos in one team (e.g. a UI and its backend)
+
+At start, after the account, `tunedteam` asks "Connect other repos to this team?". Say yes and tick
+the other repos (Space ticks, Enter confirms); the list holds the repos found in `~/repos` (a few
+levels deep) and "Other folder…". The answer is remembered per project. Start the team in the repo
+you work on most: a frontend developer starts in the UI repo and connects the backend, a backend
+developer starts in the backend and connects the UI.
+
+Every agent can then read and change the connected repos (`claude --add-dir`), creates worktrees
+in them with `tunedteam worktree --repo <path> <branch>`, and `close-all` checks all of them for
+unmerged work. How to run each repo locally belongs in that repo's CLAUDE.md or README: the agents
+read it. Something only one copy can run on the Mac (a docker compose stack, a database) gets one
+owner at a time, named by the director.
+
 ## Two Claude accounts (e.g. work and private)
 
 Claude Code keeps an account in a config folder: `~/.claude` by default, any other
@@ -177,7 +191,7 @@ director uses the same command when you ask for something recurring.
 | `tunedteam --inside-out` | how it works under the hood and why, also in [INSIDE-OUT.md](INSIDE-OUT.md) |
 | `tunedteam status` | team table: who works, who waits for the owner, context, RAM, ETA |
 | `tunedteam report start\|eta\|done` | a specialist writes its state into the table |
-| `tunedteam worktree BRANCH [BASE]` | new branch + worktree in `<repo>-worktrees.noindex/` next to the repo (Spotlight skips `.noindex` folders), node_modules cloned, .env.local copied |
+| `tunedteam worktree [--repo PATH] BRANCH [BASE]` | new branch + worktree in `<repo>-worktrees.noindex/` next to the repo (`--repo`: a connected repo) (Spotlight skips `.noindex` folders), node_modules cloned, .env.local copied |
 | `tunedteam check [--timeout S] CMD` | runs the full check once one of the 2 machine slots is free (exit 3: no slot, nothing ran) |
 | `tunedteam done` | task merged: the window restarts with a fresh context; refuses while the task's worktree or branch is still there |
 | `tunedteam add` | opens one more specialist |
