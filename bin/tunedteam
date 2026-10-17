@@ -688,6 +688,16 @@ def attach(team):
     if not sys.stdout.isatty() or os.environ.get('TUNED_NO_ATTACH'):
         return print(f'Team {team} is running: {shlex.join(TMUX + ["attach-session", "-t", team])}')
     if os.environ.get('TMUX'):
+        # Inside a team's tab in iTerm2 (tmux -CC): switch-client would move iTerm2's one connection to the other
+        # team, closing this team's tabs and opening the other as loose windows. Open a new iTerm2 window instead.
+        flags = run(['tmux', 'list-clients', '-t', run(['tmux', 'display', '-p', '#S']).stdout.strip(),
+                     '-F', '#{client_control_mode}']).stdout.split()
+        if '1' in flags:
+            cmd = shlex.join([shutil.which(TMUX[0]) or TMUX[0]] + TMUX[1:] + ['-CC', 'attach-session', '-t', f'={team}'])
+            script = f'tell application "iTerm2" to create window with default profile command "{cmd}"'
+            if run(['osascript', '-e', script]).returncode == 0:
+                return print(f'Team {team} opens in a new iTerm2 window.')
+            return print(f'Open a new iTerm2 window (Cmd+N) and run: {cmd}')
         os.execvp(TMUX[0], TMUX + ['switch-client', '-t', f'={team}'])
     if os.environ.get('TERM_PROGRAM') == 'iTerm.app':
         if iterm_tmux_tabs():
