@@ -64,8 +64,11 @@ At start you choose how agents may use database and deploy tools from your MCP s
   `insert_*`, branch merge/reset/rebase, on any server) is on Claude Code's ask list, so you
   approve each call in that window. This holds in auto mode too. Agents also save the change
   as a file in the repo and show you the exact SQL first.
-- **full**: agents write, migrate and deploy on their own. Pick it only when the database
-  is a staging copy, never the one real users write to.
+- **full**: agents really do everything on their own, without asking: writes, migrations,
+  deploys, deletes. Your job is to point the team at **staging**, never production: the
+  database and deploy target the team works on is treated as staging, whatever its name.
+  Before SQL that changes data, agents take a backup (or write down the SQL that restores
+  it); after it, they run the tests. At start, picking full shows this and asks you to confirm.
 
 If your MCP server has a read-only mode (Supabase does), connect it read-only for the team.
 

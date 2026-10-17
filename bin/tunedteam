@@ -443,6 +443,21 @@ def choose_folder():
     return pick
 
 
+def confirm_full():
+    """Full rights are hard to undo: say what they mean and take only an explicit yes."""
+    print('\n\033[1mFull rights: agents do everything on their own, without asking you:\033[0m\n'
+          '  writes, migrations, deploys and deletes on the database and deploy tools.\n'
+          '  Point the team at STAGING, never production: whatever it works on is treated as staging.\n'
+          '  Agents back up (or note restore SQL) before SQL that changes data, and run tests after.')
+    try:
+        ok = input('Give the team full rights? [y/N] ').strip().lower() in ('y', 'yes')
+    except EOFError:  # a script piped fewer answers: no yes
+        ok = False
+    if not ok:
+        print('Keeping "ask you each time".')
+    return ok
+
+
 def trusted(path):
     """Claude Code asked once whether to trust this folder (or a parent) and got a yes."""
     cfg = os.path.join(CLAUDE_DIR, '.claude.json') if os.environ.get('CLAUDE_CONFIG_DIR') else os.path.join(HOME, '.claude.json')
@@ -481,6 +496,8 @@ def start():
     control = select('Push, release and deploy:', [('owner', 'you decide'), ('team', 'the team decides')], 'owner')
     db = select('Database and deploy writes through MCP:',
                 [('ask', 'ask you each time'), ('full', 'full rights (staging databases only)')], 'ask')
+    if db == 'full' and not confirm_full():
+        db = 'ask'
     speak = select('Read aloud:', [('off', 'off'), ('questions', 'only questions for you'), ('all', 'everything')],
                    last.get('speak', 'questions'))
     cfg = dict(account=account, subscription=subscription, specialists=specialists, model=model, control=control, db=db, speak=speak,
