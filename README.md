@@ -115,14 +115,31 @@ iTerm2's settings (tmux windows open as tabs, tab bar location, the tmux gateway
 work from the next start; "leave it" is remembered and not asked again. Other terminals show
 the tmux tab bar at the bottom.
 
-Every window shows a status line: `repo branch │ model │ ctx %`, the context turning yellow and
-red as the window nears its restart point (director ~20%, specialists ~30%). The director's
-window has two lines, redrawn every 15 s: what you can say to it ("tasks", "status", "add a
-specialist", "release", "close the team") with the tunedteam version on the right, and how the
-team is doing (`● 6 working  ○ 3 free`, plus `▲ 2 WAITING FOR YOU` when anyone waits on you)
-with the usual line on the right. Put a command in `~/.tunedteam/statusline` to show its first
+Every window shows the same right half: `repo version branch │ model │ ctx % │ tunedteam version`,
+the context turning yellow and red as the window nears its restart point (director ~20%,
+specialists ~30%). On the left a specialist shows its name and task; the director shows how the
+team is doing (`● 6 working  ○ 3 free`, plus `▲ 2 WAITING FOR YOU` when anyone waits on you), with
+a line above of what you can say to it ("tasks", "status", "add a specialist", "release", "close
+the team"), redrawn every 15 s. Put a command in `~/.tunedteam/statusline` to show its first
 line there too, e.g. deploys on Vercel: it runs in the project folder, in the background, every
 5 minutes.
+
+## Rules
+
+The full rules are in [roles/](roles/): `team.md` for everyone, `director.md`, `specialist.md`.
+Some are enforced by tunedteam, the rest are instructions the agents follow:
+
+| Rule | Enforced by |
+|---|---|
+| a task ends merged, with its worktree and branch gone, before the window starts fresh | `tunedteam done` refuses until then |
+| at most 2 full checks at a time | `tunedteam check` waits or exits 3 |
+| database writes, migrations and deploys through MCP need your yes ("ask" mode) | Claude Code's ask list |
+| nothing closes while work is unmerged | `close-all` needs `--force` |
+| a window starts fresh past its restart point (director ~20%, specialists ~30%) | a hook tells the window when it passes it (the model can't see its own status line); the restart itself is done by the agent |
+| one task per specialist, one branch per task, every task on its own files | the role |
+| at most 4 dev servers, headless browsers | the role |
+| when the team decides, at most one release an hour | the role (a hard limit belongs in the project's own release script) |
+| messages only when the receiver must act, no "ok" or "thanks" | the role |
 
 ## Releases
 

@@ -240,6 +240,8 @@ def settings_file(team, name, cfg):
         s['statusLine']['refreshInterval'] = 15
     if cfg.get('db', 'ask') == 'ask':
         s['permissions'] = {'ask': DB_WRITE_TOOLS}
+    # Tell the window when it passes its restart point (it can't see its own context %).
+    s['hooks']['PostToolUse'] = [{'matcher': '*', 'hooks': [{'type': 'command', 'command': f'{me_cmd} ctx-check'}]}]
     if name == 'director' and cfg['speak'] != 'off':
         s['hooks']['Stop'] = [{'hooks': [{'type': 'command', 'command': f'{me_cmd} speak'}]}]
     if cfg['speak'] == 'all':
@@ -996,10 +998,14 @@ def statusline():
         round(cw['used_percentage']) if cw.get('used_percentage') is not None else None)
     name = os.environ.get('TUNED_NAME')
     # The context colour warns before the role's restart point (director ~20%, specialists ~30%).
-    limit = 20 if name == 'director' else 30
+    limit = restart_point(name)
     ctx = '' if pct is None else paint(GREEN if pct < limit - 5 else YELLOW if pct < limit else RED, f'ctx {pct}%')
-    out = SEP.join(x for x in (paint(BOLD, os.path.basename(repo)) + (' ' + paint(MAGENTA, branch) if branch else ''),
+    project = read_json(os.path.join(repo, 'package.json'), {}).get('version', '')
+    out = SEP.join(x for x in (paint(BOLD, os.path.basename(repo)) + (' ' + paint(DIM, project) if project else '')
+                               + (' ' + paint(MAGENTA, branch) if branch else ''),
                                paint(DIM, model) if model else '', ctx) if x)
+    if name:  # in a team: which tunedteam runs it, in every window
+        out += SEP + paint(DIM, cached(team_name(), 'version', 60, version_line))
     if name == 'director':
         # The window the owner talks to: what to say on the left, the team and the owner's own line, with the
         # usual line and the version pushed to the right edge.
@@ -1007,8 +1013,14 @@ def statusline():
         width = int(os.environ.get('COLUMNS') or 0)
         team_line = SEP.join(x for x in (cached(team, 'team', 15, lambda: team_counts(team_rows(team))),
                                          own_status(team)) if x)
-        print(spread(HINTS, paint(DIM, cached(team, 'version', 60, version_line)), width, drop=True))
+        print(HINTS)
         print(spread(team_line, out, width))
+    elif name:
+        # A specialist: who it is and its task on the left, the same right half as the director's.
+        rep = read_json(os.path.join(state_dir(team_name()), 'reports.json'), {}).get(name, {})
+        task = rep.get('what', '') if rep and not rep.get('done') else ''
+        print(spread(paint(BOLD, name) + (paint(DIM, ' · ') + short(task, 50) if task else paint(DIM, ' · free')),
+                     out, int(os.environ.get('COLUMNS') or 0)))
     else:
         print(out)
 
@@ -1097,6 +1109,39 @@ def own_status(team):
         return ''
 
 
+RESTART_AT = {'director': 20}  # % of the model's real window; specialists: 30
+
+
+def restart_point(name):
+    return RESTART_AT.get(name, 30)
+
+
+def ctx_check():
+    """Claude Code hook (PostToolUse): the model can't see its own status line, so once a window passes its restart
+    point, tell it, once per 5 points. Silent below the point: no tokens."""
+    d = json.loads(sys.stdin.read() or '{}')
+    name, sid = os.environ.get('TUNED_NAME'), d.get('session_id')
+    if not name or not sid:
+        return
+    _, _, tokens, model = transcript(sid)
+    pct, limit = ctx_pct(tokens, model), restart_point(name)
+    mark = os.path.join(state_dir(team_name()), 'ctx-warned', sid)
+    try:
+        last = int(open(mark).read())
+    except (OSError, ValueError):
+        last = 0
+    if not tokens or pct < limit or pct < last + 5:
+        return
+    os.makedirs(os.path.dirname(mark), exist_ok=True)
+    open(mark, 'w').write(str(pct))
+    todo = ('write your handover file, then run `tunedteam restart self`' if name == 'director' else
+            'finish the current step, send the director your state (done, left, branch, worktree), '
+            'then run `tunedteam restart self`')
+    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PostToolUse', 'additionalContext':
+          f'tunedteam: your context is at {pct}%, past your restart point ({limit}%). Now {todo}. '
+          'Do it yourself; it needs no yes from the owner.'}}))
+
+
 def speak():
     d = json.loads(sys.stdin.read() or '{}')
     if d.get('hook_event_name') == 'Notification':
@@ -1146,6 +1191,8 @@ def main():
         statusline()
     elif cmd == 'speak':
         speak()
+    elif cmd == 'ctx-check':
+        ctx_check()
     else:
         sys.exit(__doc__)
 

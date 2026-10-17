@@ -43,7 +43,11 @@ teams. The rest of this page is how each of those works.
 - **Start over before context gets expensive.** Every tool call resends the whole
   conversation (mostly from cache, but still). A specialist hands its state to the director
   and restarts at about 30%; the director writes a handover file and restarts at about 20%.
-  Percentages are counted against the model's real window (Opus 1M), not a guess.
+  Percentages are counted against the model's real window (Opus 1M), not a guess. The model
+  can't see its own status line, so a PostToolUse hook (`tunedteam ctx-check`) reads the end of
+  the window's transcript after every tool call and, once the window is past its point, adds one
+  line to its context: your context is at N%, restart now. Below the point it says nothing, so it
+  costs no tokens; above it, it repeats only every 5 points.
 - **Progress goes to a table, not to messages.** Every message wakes the receiver and costs
   it a full turn over its whole context. `tunedteam report start|eta|done` writes a line to
   `~/.tunedteam/teams/<team>/reports.json` instead, and nobody pays for reading it until they
