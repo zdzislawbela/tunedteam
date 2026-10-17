@@ -234,6 +234,9 @@ def settings_file(team, name, cfg):
     """Per-window Claude Code settings, layered on top of the user's own (claude --settings)."""
     me_cmd = shlex.quote(os.path.realpath(__file__))
     s = {'statusLine': {'type': 'command', 'command': f'{me_cmd} statusline'}, 'hooks': {}}
+    if name == 'director':
+        # The team counts change while the director sits idle: redraw every 15 s (as long as they are cached).
+        s['statusLine']['refreshInterval'] = 15
     if cfg.get('db', 'ask') == 'ask':
         s['permissions'] = {'ask': DB_WRITE_TOOLS}
     if name == 'director' and cfg['speak'] != 'off':
@@ -724,7 +727,10 @@ def transcript(sid):
     last, pending, ctx, model = '', None, 0, ''
     if not files:
         return last, pending, ctx, model
-    with open(max(files, key=os.path.getmtime)) as f:
+    with open(max(files, key=os.path.getmtime), 'rb') as f:
+        # Only the end matters (the last reply, the last tool call, the last usage), and transcripts grow to
+        # tens of MB: read the last 256 KB. The first, cut line fails to parse and is skipped.
+        f.seek(max(0, os.fstat(f.fileno()).st_size - 262144))
         for line in f:
             try:
                 r = json.loads(line)
@@ -854,12 +860,35 @@ def statusline():
     elif cw.get('used_percentage') is not None:
         out += f" | ctx {round(cw['used_percentage'])}%"
     if os.environ.get('TUNED_NAME') == 'director':
-        # The window the owner talks to: what to say, and how the team is doing, above the usual line.
+        # The window the owner talks to: what to say on the left, the team and the owner's own line, with the
+        # usual line and the version pushed to the right edge.
         team = team_name()
-        print(HINTS)
-        print(' | '.join(x for x in (cached(team, 'team', 15, lambda: team_summary(team_rows(team))),
-                                     own_status(team), cached(team, 'version', 60, version_line)) if x))
-    print(out)
+        width = int(os.environ.get('COLUMNS') or 0)
+        team_line = ' | '.join(x for x in (cached(team, 'team', 15, lambda: team_counts(team_rows(team))),
+                                           own_status(team)) if x)
+        print(spread(HINTS, cached(team, 'version', 60, version_line), width, drop=True))
+        print(spread(team_line, out, width))
+    else:
+        print(out)
+
+
+def spread(left, right, width, drop=False):
+    """left and right on one line, right at the edge. Claude Code strips leading spaces and indents the line
+    by 2, so the gap goes in the middle. Without room, right is dropped (drop) or gets a line of its own."""
+    gap = width - 4 - len(left) - len(right)
+    if width and gap >= 3:
+        return left + ' ' * gap + right
+    if drop:
+        return left
+    return f'{left}\n{right}' if width else f'{left} | {right}'
+
+
+def team_counts(rows):
+    """The short team line: who works, who is free, and who waits for the owner when anyone does."""
+    states = [r[5] for r in rows if r[1].startswith('specialist-')]
+    waiting = sum(s.startswith('waiting') for s in states)
+    return (f"team: {sum(s in ('working', 'task open') for s in states)} working · {states.count('free')} free"
+            + (f' · {waiting} WAITING FOR YOU' if waiting else ''))
 
 
 HINTS = 'say "tasks", "status", "add a specialist", "release", "close the team" · Ctrl+V pastes an image · !cmd runs here'
