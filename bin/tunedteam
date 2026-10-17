@@ -11,6 +11,7 @@ tasks to the specialists, who do the work. The other commands are for the agents
   tunedteam status                     team table: who works, who waits for the owner, context
   tunedteam teams                      the teams running on this Mac and their directors' addresses
   tunedteam tasks                      the tasks in progress and the specialists on each
+  tunedteam log [NAME] [-n N] [-f]     the windows' last tool calls (all, or one); -f keeps printing new ones
   tunedteam schedule [add NAME HH:MM CMD | run|log|off|on|rm NAME]  commands run every day by launchd
   tunedteam report start|eta|done ...  a specialist writes its state into the table
   tunedteam worktree [--repo PATH] BRANCH [BASE]  new branch + worktree next to the repo, hidden from Spotlight
@@ -1231,7 +1232,60 @@ def status():
     print(f'\nRAM of all windows: {total / 1024:.1f} GB')
 
 
+def log_lines(team, name=None):
+    """The team's logged tool calls, oldest first: [(name, event)]."""
+    out = []
+    for f in sorted(glob.glob(os.path.join(state_dir(team), 'log', '*.jsonl'))):
+        n = os.path.basename(f)[:-6]
+        if name and n != name:
+            continue
+        for l in open(f, errors='replace'):
+            try:
+                out.append((n, json.loads(l)))
+            except ValueError:
+                pass
+    return sorted(out, key=lambda e: e[1].get('t', 0))
+
+
+def log_row(name, e):
+    return f"{time.strftime('%H:%M:%S', time.localtime(e['t']))}  {name:<14} {e.get('tool', ''):<12} {e.get('what', '')}"
+
+
+def log(args):
+    """The windows' last tool calls, oldest first, from the team's log; -f keeps printing new ones."""
+    team = team_name()
+    count = int(args[args.index('-n') + 1]) if '-n' in args[:-1] else 40
+    name = next((x for x in args if not x.startswith('-') and not x.isdigit()), None)
+    rows = log_lines(team, name)
+    if not rows and '-f' not in args:
+        return print(f'No tool calls logged yet in team {team}.')
+    for n, e in rows[-count:]:
+        print(log_row(n, e))
+    seen = rows[-1][1].get('t', 0) if rows else 0
+    while '-f' in args:
+        time.sleep(1)
+        for n, e in log_lines(team, name):
+            if e.get('t', 0) > seen:
+                print(log_row(n, e), flush=True)
+                seen = e['t']
+
+
 # ---------- hooks ----------
+
+def log_event(d, name):
+    """One line per tool call in the team's log (tunedteam log), so the owner can see what a window did."""
+    i = d.get('tool_input') or {}
+    what = next((i[k] for k in ('command', 'file_path', 'pattern', 'url', 'query', 'description') if isinstance(i.get(k), str)),
+                next((v for v in i.values() if isinstance(v, str)), ''))
+    if isinstance(i.get('to'), str):  # a message: who to, then the text
+        what = f"→ {i['to']}: {i.get('message') if isinstance(i.get('message'), str) else what}"
+    path = os.path.join(state_dir(team_name()), 'log', f'{name}.jsonl')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if os.path.exists(path) and os.path.getsize(path) > 5_000_000:
+        os.replace(path, path + '.1')  # keep the log small: one old file, the rest goes
+    with open(path, 'a') as f:
+        f.write(json.dumps({'t': time.time(), 'tool': d.get('tool_name', ''),
+                            'what': ' '.join(what.split())[:200]}, ensure_ascii=False) + '\n')
 
 def statusline():
     d = json.loads(sys.stdin.read() or '{}')
@@ -1414,6 +1468,7 @@ def ctx_check():
     name, sid = os.environ.get('TUNED_NAME'), d.get('session_id')
     if not name or not sid:
         return
+    log_event(d, name)  # here, not in a hook of its own: one Python start per tool call, not two
     _, _, tokens, model = transcript(sid)
     pct, limit = ctx_pct(tokens, model), restart_point(name)
     mark = os.path.join(state_dir(team_name()), 'ctx-warned', sid)
@@ -1462,6 +1517,8 @@ def main():
         teams()
     elif cmd == 'tasks':
         tasks()
+    elif cmd == 'log':
+        log(a[1:])
     elif cmd == 'schedule':
         schedule(a[1:])
     elif cmd == 'report':

@@ -188,6 +188,7 @@ director uses the same command when you ask for something recurring.
 |---|---|
 | `tunedteam --version` | the installed version (in a git checkout also commits past the release) |
 | `tunedteam tasks` | the tasks in progress, with the specialists, branch, ETA and state of each |
+| `tunedteam log [NAME] [-n N] [-f]` | the windows' last tool calls, oldest first (all, or one window; `-f` keeps printing new ones): what each agent ran, edited, read and sent. One file per window in `~/.tunedteam/teams/<repo>/log/`, at most ~10 MB each |
 | `tunedteam schedule …` | commands run every day by launchd: list, add, run, log, off, on, rm |
 | `tunedteam --inside-out` | how it works under the hood and why, also in [INSIDE-OUT.md](INSIDE-OUT.md) |
 | `tunedteam status` | team table: who works, who waits for the owner, context, RAM, ETA |
