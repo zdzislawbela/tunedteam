@@ -851,47 +851,65 @@ def statusline():
                '--git-common-dir', '--abbrev-ref', 'HEAD']).stdout.split('\n')
     repo = os.path.dirname(os.path.realpath(git[0])) if git[0] else cwd
     branch = git[1] if len(git) > 1 and git[1] != 'HEAD' else ''
-    out = os.path.basename(repo) + (f' ({branch})' if branch else '') + (f' | {model}' if model else '')
     cw = d.get('context_window') or {}
     u = cw.get('current_usage') or {}
     tokens = u.get('input_tokens', 0) + u.get('cache_read_input_tokens', 0) + u.get('cache_creation_input_tokens', 0)
-    if tokens:
-        out += f" | ctx {ctx_pct(tokens, (d.get('model') or {}).get('id', ''))}%"
-    elif cw.get('used_percentage') is not None:
-        out += f" | ctx {round(cw['used_percentage'])}%"
-    if os.environ.get('TUNED_NAME') == 'director':
+    pct = ctx_pct(tokens, (d.get('model') or {}).get('id', '')) if tokens else (
+        round(cw['used_percentage']) if cw.get('used_percentage') is not None else None)
+    name = os.environ.get('TUNED_NAME')
+    # The context colour warns before the role's restart point (director ~20%, specialists ~30%).
+    limit = 20 if name == 'director' else 30
+    ctx = '' if pct is None else paint(GREEN if pct < limit - 5 else YELLOW if pct < limit else RED, f'ctx {pct}%')
+    out = SEP.join(x for x in (paint(BOLD, os.path.basename(repo)) + (' ' + paint(MAGENTA, branch) if branch else ''),
+                               paint(DIM, model) if model else '', ctx) if x)
+    if name == 'director':
         # The window the owner talks to: what to say on the left, the team and the owner's own line, with the
         # usual line and the version pushed to the right edge.
         team = team_name()
         width = int(os.environ.get('COLUMNS') or 0)
-        team_line = ' | '.join(x for x in (cached(team, 'team', 15, lambda: team_counts(team_rows(team))),
-                                           own_status(team)) if x)
-        print(spread(HINTS, cached(team, 'version', 60, version_line), width, drop=True))
+        team_line = SEP.join(x for x in (cached(team, 'team', 15, lambda: team_counts(team_rows(team))),
+                                         own_status(team)) if x)
+        print(spread(HINTS, paint(DIM, cached(team, 'version', 60, version_line)), width, drop=True))
         print(spread(team_line, out, width))
     else:
         print(out)
 
 
+# ANSI colours from the terminal's own palette, so they follow its theme.
+BOLD, DIM, GREEN, YELLOW, RED, MAGENTA, CYAN = '1', '2', '32', '33', '31', '35', '36'
+ANSI = re.compile(r'\x1b\[[0-9;]*m')
+
+
+def paint(code, text):
+    return f'\x1b[{code}m{text}\x1b[0m'
+
+
+SEP = paint(DIM, ' │ ')
+
+
 def spread(left, right, width, drop=False):
     """left and right on one line, right at the edge. Claude Code strips leading spaces and indents the line
     by 2, so the gap goes in the middle. Without room, right is dropped (drop) or gets a line of its own."""
-    gap = width - 4 - len(left) - len(right)
+    gap = width - 4 - len(ANSI.sub('', left)) - len(ANSI.sub('', right))
     if width and gap >= 3:
         return left + ' ' * gap + right
     if drop:
         return left
-    return f'{left}\n{right}' if width else f'{left} | {right}'
+    return f'{left}\n{right}' if width else left + SEP + right
 
 
 def team_counts(rows):
     """The short team line: who works, who is free, and who waits for the owner when anyone does."""
     states = [r[5] for r in rows if r[1].startswith('specialist-')]
     waiting = sum(s.startswith('waiting') for s in states)
-    return (f"team: {sum(s in ('working', 'task open') for s in states)} working · {states.count('free')} free"
-            + (f' · {waiting} WAITING FOR YOU' if waiting else ''))
+    return '  '.join([paint(GREEN, f"● {sum(s in ('working', 'task open') for s in states)} working"),
+                      paint(DIM, f"○ {states.count('free')} free")]
+                     + ([paint(BOLD + ';' + YELLOW, f'▲ {waiting} WAITING FOR YOU')] if waiting else []))
 
 
-HINTS = 'say "tasks", "status", "add a specialist", "release", "close the team" · Ctrl+V pastes an image · !cmd runs here'
+HINTS = (paint(DIM, 'say ') + paint(DIM, ' · ').join(paint(CYAN, x) for x in
+                                                     ('tasks', 'status', 'add a specialist', 'release', 'close the team'))
+         + SEP + paint(BOLD, 'Ctrl+V') + paint(DIM, ' image') + SEP + paint(BOLD, '!cmd') + paint(DIM, ' run here'))
 
 
 def version_line():
