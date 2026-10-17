@@ -9,7 +9,11 @@ here=$(cd "$(dirname "$0")" && pwd)
 tap=${TUNED_TAP_DIR:-$HOME/repos/priv/homebrew-tap}
 
 git -C "$here" push origin main
-git -C "$here" tag "v$v"
+if git -C "$here" rev-parse -q --verify "refs/tags/v$v" >/dev/null; then
+  echo "Tag v$v already exists, using it."
+else
+  git -C "$here" tag "v$v"
+fi
 git -C "$here" push origin "v$v"
 
 url="https://github.com/zdzislawbela/tuned-team/archive/refs/tags/v$v.tar.gz"
