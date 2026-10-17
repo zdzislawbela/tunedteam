@@ -10,6 +10,7 @@ tasks to the specialists, who do the work. The other commands are for the agents
   tunedteam --inside-out               how it works under the hood and why (context, tmux, accounts)
   tunedteam status                     team table: who works, who waits for the owner, context
   tunedteam teams                      the teams running on this Mac and their directors' addresses
+  tunedteam tasks                      the tasks in progress and the specialists on each
   tunedteam report start|eta|done ...  a specialist writes its state into the table
   tunedteam worktree BRANCH [BASE]      new branch + worktree next to the repo, hidden from Spotlight
   tunedteam check [--timeout S] CMD..  run the full check once one of the 2 machine slots is free
@@ -794,6 +795,32 @@ def team_summary(rows):
             f"{count(lambda s: s.startswith('waiting'))} waiting for the owner · {count(lambda s: s == 'free')} free")
 
 
+def tasks():
+    """The tasks in progress, each with the specialists on it: from their reports and their live state."""
+    team = team_name()
+    groups, free = {}, []
+    for idx, name, branch, ctx, ram, state, eta, doing in team_rows(team):
+        if not name.startswith('specialist-'):
+            continue
+        if state in ('free', 'starting or stopped'):
+            free.append(name)
+            continue
+        g = groups.setdefault(doing or f'(no report from {name})', {'agents': [], 'branches': set(), 'etas': [], 'states': []})
+        g['agents'].append(name)
+        g['branches'].update([branch] if branch else [])
+        g['etas'].append(eta)
+        g['states'].append(state)
+    print(f"{team} · {time.strftime('%H:%M')} · tasks in progress: {len(groups)}")
+    print()
+    print('| Task | Specialists | Branch | ETA | State |')
+    print('|---|---|---|---|---|')
+    for what, g in groups.items():
+        states = sorted(set(g['states']), key=lambda s: not s.startswith('waiting'))  # waiting for the owner first
+        print(f"| {short(what, 60)} | {', '.join(g['agents'])} | {', '.join(sorted(g['branches']))} | "
+              f"{max((e for e in g['etas'] if e), default='')} | {short('; '.join(states), 40)} |")
+    print(f"\nFree: {', '.join(free) if free else 'nobody'}")
+
+
 def status():
     team = team_name()
     rows = team_rows(team)
@@ -835,7 +862,7 @@ def statusline():
     print(out)
 
 
-HINTS = 'say "status", "add a specialist", "release", "close the team" · Ctrl+V pastes an image · !cmd runs here'
+HINTS = 'say "tasks", "status", "add a specialist", "release", "close the team" · Ctrl+V pastes an image · !cmd runs here'
 
 
 def cached(team, key, seconds, compute):
@@ -901,6 +928,8 @@ def main():
         status()
     elif cmd == 'teams':
         teams()
+    elif cmd == 'tasks':
+        tasks()
     elif cmd == 'report':
         report(a[1:])
     elif cmd == 'worktree':

@@ -116,7 +116,7 @@ work from the next start; "leave it" is remembered and not asked again. Other te
 the tmux tab bar at the bottom.
 
 Every window shows one plain status line: `repo (branch) | model | ctx %`.
-The director's window adds two lines above it: what you can say to it ("status", "add a
+The director's window adds two lines above it: what you can say to it ("tasks", "status", "add a
 specialist", "release", "close the team") and how the team is doing (`specialists: 3 working ·
 1 waiting for the owner · 4 free`). Put a command in `~/.tunedteam/statusline` to show its first
 line there too, e.g. deploys on Vercel: it runs in the project folder, in the background, every 5 minutes.
@@ -126,6 +126,7 @@ line there too, e.g. deploys on Vercel: it runs in the project folder, in the ba
 | Command | What it does |
 |---|---|
 | `tunedteam --version` | the installed version (in a git checkout also commits past the release) |
+| `tunedteam tasks` | the tasks in progress, with the specialists, branch, ETA and state of each |
 | `tunedteam --inside-out` | how it works under the hood and why, also in [INSIDE-OUT.md](INSIDE-OUT.md) |
 | `tunedteam status` | team table: who works, who waits for the owner, context, RAM, ETA |
 | `tunedteam report start\|eta\|done` | a specialist writes its state into the table |
