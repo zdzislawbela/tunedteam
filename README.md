@@ -21,6 +21,10 @@ Homebrew brings tmux along. Claude Code is installed separately
 (`brew install --cask claude-code`). Update with `brew upgrade tunedteam`. Works in any
 terminal (Ghostty, iTerm2, Terminal).
 
+New to tmux? Use **iTerm2** (`brew install --cask iterm2`): every agent is a normal tab you
+click, listed on the left, and no tmux keys to learn. The first start in iTerm2 offers this
+layout.
+
 To work on Tuned Team itself instead: clone this repo and run `./install.sh`, which links
 `bin/tunedteam` into `~/bin` (needs `tmux`, `claude`, `python3`, `git`).
 
