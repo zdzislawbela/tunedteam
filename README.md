@@ -84,7 +84,7 @@ In a project folder:
 tunedteam
 ```
 
-It lists your Claude accounts (`~/.claude`, every `~/.claude-*` folder and your own
+Every question is a list you pick from with the arrow keys and Enter. It lists your Claude accounts (`~/.claude`, every `~/.claude-*` folder and your own
 `CLAUDE_CONFIG_DIR`, e.g. work and private), asks which one to use (with one account it
 skips the question) and logs it in first if needed, so no window opens on a
 logged-out account. Then it asks for the number of specialists, the model, who decides on push

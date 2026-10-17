@@ -22,7 +22,8 @@ import glob, json, os, re, shlex, subprocess, sys, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 ROLES = os.path.join(ROOT, 'roles')
-TMUX = ['tmux', '-L', 'tuned', '-f', os.path.join(ROOT, 'tmux.conf')]
+# Tests set TUNED_TMUX_SOCKET to their own server, so they never touch the owner's running teams.
+TMUX = ['tmux', '-L', os.environ.get('TUNED_TMUX_SOCKET', 'tuned'), '-f', os.path.join(ROOT, 'tmux.conf')]
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.environ.get('CLAUDE_CONFIG_DIR') or os.path.join(HOME, '.claude')
 CHECK_SLOTS = int(os.environ.get('TUNED_CHECK_MAX', 2))
@@ -263,20 +264,50 @@ def open_window(team, name, cfg):
 
 # ---------- the owner's command: ask, then start ----------
 
-def ask(question, default, valid=None):
-    while True:
-        a = input(f'{question} [{default}] ').strip() or str(default)
-        if valid is None or a in valid:
-            return a
-        print(f"  Answer one of: {', '.join(valid)}")
-
-
-def ask_number(question, default, lo, hi):
-    while True:
-        a = input(f'{question} [{default}] ').strip() or str(default)
-        if a.isdigit() and lo <= int(a) <= hi:
-            return int(a)
-        print(f'  Enter a number from {lo} to {hi}.')
+def select(question, options, default=None):
+    """Pick one option with the arrow keys and Enter. options: [(value, label)]; returns the value.
+    Without a terminal (a pipe, a script) it reads one line: a number, a value, or Enter for the default."""
+    values = [v for v, _ in options]
+    i = values.index(default) if default in values else 0
+    if not sys.stdin.isatty():
+        a = sys.stdin.readline().strip()
+        if a.isdigit() and 1 <= int(a) <= len(options):
+            return values[int(a) - 1]
+        return next((v for v in values if str(v) == a), values[i])
+    import termios, tty
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    print(question)
+    sys.stdout.write('\033[?25l')  # hide the cursor while choosing
+    def draw(first=False):
+        if not first:
+            sys.stdout.write(f'\033[{len(options)}A')
+        for k, (_, label) in enumerate(options):
+            sys.stdout.write('\r\033[2K' + (f'  \033[1m> {label}\033[0m' if k == i else f'    {label}') + '\n')
+        sys.stdout.flush()
+    try:
+        tty.setcbreak(fd)
+        draw(True)
+        while True:
+            c = os.read(fd, 1)
+            if not c:
+                break  # end of input: keep the highlighted option
+            if c == b'\x1b':
+                c += os.read(fd, 2)  # an arrow key: ESC [ A/B
+            if c in (b'\r', b'\n'):
+                break
+            if c in (b'\x1b[A', b'k'):
+                i = (i - 1) % len(options)
+            elif c in (b'\x1b[B', b'j'):
+                i = (i + 1) % len(options)
+            elif c in (b'\x03', b'q'):
+                raise KeyboardInterrupt
+            draw()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        sys.stdout.write('\033[?25h')
+    sys.stdout.write(f'\033[{len(options)}A\033[J  {options[i][1]}\n')
+    return values[i]
 
 
 def auth_status(config_dir):
@@ -323,14 +354,7 @@ def choose_account(last):
     """Ask which account to use and make sure it is logged in before any window opens."""
     accs = accounts()
     current = last.get('account', os.environ.get('CLAUDE_CONFIG_DIR'))
-    default = next((i for i, (d, _) in enumerate(accs, 1) if d == current), 1)
-    if len(accs) == 1:
-        d = accs[0][0]
-    else:
-        print('Claude accounts:')
-        for i, (_, label) in enumerate(accs, 1):
-            print(f'  {i}. {label}')
-        d = accs[ask_number('Which account?', default, 1, len(accs)) - 1][0]
+    d = accs[0][0] if len(accs) == 1 else select('Claude account:', accs, current)
     use_account(d)
     if not auth_status(d).get('loggedIn'):
         print('This account is not logged in. Logging in now (a browser opens).')
@@ -353,10 +377,7 @@ def api_key_warning(cwd, subscription):
                 found.append(os.path.basename(f))
         except OSError:
             pass
-    if found and subscription:
-        print(f"Paid Anthropic API key found in {', '.join(found)}. Windows start without it and use your plan; "
-              "agents call the paid API only with your yes and a stated cost.")
-    elif found:
+    if found and not subscription:  # on a plan the windows start without the key: nothing to say
         print(f"This account has no subscription: the agents run on the API key from {', '.join(found)} and it costs money.")
 
 
@@ -379,26 +400,25 @@ def start():
         print(f'Team "{team}" is already running; attaching.')
         return attach(team)
     last = config(team)
-    print(f'Tuned Team {version()} for {team}. Enter keeps the value in [brackets].')
+    print(f'Tuned Team {version()} for {team}. Arrows to choose, Enter to confirm.')
     notice = update_notice()
     if notice:
         print(notice)
     print()
     account, subscription = choose_account(last)
     api_key_warning(os.getcwd(), subscription)
-    print()
     if not trusted(os.getcwd()):
         sys.exit('Claude Code does not trust this folder yet on this account, and every window would ask. '
                  'Run `claude` here once, answer "Yes, I trust this folder", exit, then run tunedteam again.')
-    specialists = ask_number('How many specialists?', last.get('specialists', 2), 1, 100)
-    model = ask('Model for the specialists (opus/sonnet)? The director always runs on opus.',
-                last.get('model', 'opus'), ['opus', 'sonnet'])
-    control = ask('Who decides on push, release and deploy (owner/team)?', last.get('control', 'owner'), ['owner', 'team'])
-    db = ask('Database and deploy writes through MCP: ask you each time, or full rights for the agents (ask/full)? '
-             'Pick full only on a staging database.', last.get('db', 'ask'), ['ask', 'full'])
-    speak_all = ask('Read all notifications aloud (y/n)?', 'y' if last.get('speak') == 'all' else 'n', ['y', 'n'])
-    speak = 'all' if speak_all == 'y' else (
-        'questions' if ask('Read aloud only questions for you (y/n)?', 'n' if last.get('speak') == 'off' else 'y', ['y', 'n']) == 'y' else 'off')
+    specialists = select('Specialists:', [(n, str(n)) for n in (1, 2, 3, 4, 6, 8, 12, 16)], last.get('specialists', 4))
+    model = select('Model for the specialists (the director always runs on Opus):',
+                   [('opus', 'Opus'), ('sonnet', 'Sonnet (uses less of your plan)')], last.get('model', 'opus'))
+    # The safe answer is always the default here, whatever was picked last time.
+    control = select('Push, release and deploy:', [('owner', 'you decide'), ('team', 'the team decides')], 'owner')
+    db = select('Database and deploy writes through MCP:',
+                [('ask', 'ask you each time'), ('full', 'full rights (staging databases only)')], 'ask')
+    speak = select('Read aloud:', [('off', 'off'), ('questions', 'only questions for you'), ('all', 'everything')],
+                   last.get('speak', 'questions'))
     cfg = dict(account=account, subscription=subscription, specialists=specialists, model=model, control=control, db=db, speak=speak,
                cwd=os.getcwd())
     write_json(os.path.join(state_dir(team), 'config.json'), cfg)
@@ -419,7 +439,7 @@ def start():
 
 def attach(team):
     tmux('select-window', '-t', f'={team}:=director')
-    if not sys.stdout.isatty():
+    if not sys.stdout.isatty() or os.environ.get('TUNED_NO_ATTACH'):
         return print(f'Team {team} is running: {shlex.join(TMUX + ["attach-session", "-t", team])}')
     if os.environ.get('TMUX'):
         os.execvp(TMUX[0], TMUX + ['switch-client', '-t', f'={team}'])
