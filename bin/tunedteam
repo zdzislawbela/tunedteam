@@ -505,7 +505,7 @@ def repo_candidates():
     recent = []
     for f in glob.glob(os.path.join(HOME, '.tunedteam', 'teams', '*', 'config.json')):
         cwd = read_json(f, {}).get('cwd')
-        if cwd and os.path.isdir(cwd):
+        if cwd and os.path.isdir(cwd) and not os.path.realpath(cwd).startswith(('/private/tmp/', '/private/var/folders/')):
             recent.append((os.path.getmtime(f), cwd))
     recent = [c for _, c in sorted(recent, reverse=True)]
     found = [d for d in find_repos(os.path.join(HOME, 'repos')) if not re.search(r'-check-\d+$', d)]
@@ -555,7 +555,9 @@ def choose_repos(last):
     if select('Connect other repos to this team?', [('no', 'no'), ('yes', 'yes, pick them')],
               'yes' if before else 'no') == 'no':
         return []
-    paths = [d for d in before + repo_candidates() if d != main]
+    # Nearest first: the repos sharing the longest part of the path with this one (a backend next to its UI).
+    near = lambda d: -len(os.path.commonpath([d, main]))
+    paths = [d for d in before + sorted(repo_candidates(), key=near) if d != main]
     paths = list(dict.fromkeys(paths))[:30]
     other = '__other__'
     picked = select_many('Connected repos:', [(d, d.replace(HOME, '~')) for d in paths] + [(other, 'Other folder…')],
