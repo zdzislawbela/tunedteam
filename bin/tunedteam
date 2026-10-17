@@ -35,9 +35,10 @@ CONTROL = {
     'owner': "Control mode for this project: THE OWNER DECIDES. Release, push, deploy and changes to settings or "
              "permissions wait for a yes from the owner, given after you show the exact repo, branch and commits. "
              "The owner pushes by hand: give them the exact command.",
-    'team': "Control mode for this project: THE TEAM DECIDES. The director releases on its own when there are new merged "
-            "commits on the base branch; the team decides each step itself. Permission prompts and sandbox blocks "
-            "still go to the owner.",
+    'team': "Control mode for this project: THE TEAM DECIDES. The director releases on its own, at most once an hour: "
+            "it collects the commits merged since the last release and ships them in one release (every release is a "
+            "deploy, and each deploy fills the hosting's storage). The team decides each step itself. Permission prompts "
+            "and sandbox blocks still go to the owner.",
 }
 SPEAK = {
     'all': "Reading aloud is ON for everything: end each reply to the owner with <speak>1-2 plain spoken sentences: "

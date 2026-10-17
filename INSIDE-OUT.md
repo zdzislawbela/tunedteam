@@ -113,7 +113,9 @@ teams. The rest of this page is how each of those works.
 ## Safety
 
 - **Push, release and deploy follow the control mode** chosen at start: the owner decides
-  (default), or the team decides. Permission prompts always go to the owner, in the window
+  (default), or the team decides. When the team decides, the director releases at most once an
+  hour, all merged commits together: every release is a deploy, and a release per merge filled
+  the hosting's deployment storage. Permission prompts always go to the owner, in the window
   that asks.
 - **Database writes through MCP:** in "ask" mode every tool that writes, migrates, deploys
   or deletes is on Claude Code's ask list, which holds in auto mode too. Schema changes are
