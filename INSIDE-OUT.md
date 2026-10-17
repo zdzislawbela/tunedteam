@@ -122,13 +122,21 @@ teams. The rest of this page is how each of those works.
   saved as migration files in the repo either way.
 - **`close-all` lists unmerged branches, worktrees and uncommitted files** and closes
   nothing without `--force`, which agents use only after the owner's yes.
-- **Recurring tasks** (cron, `/loop`) only on the owner's request, always with an end date.
+- **Recurring work goes to launchd when it is a plain command** (`tunedteam schedule`): a cron
+  inside a Claude session wakes the session and costs a full turn over its context on every run,
+  and dies with the session. A Claude cron (`/loop`, CronCreate) only when each run needs a model,
+  on the owner's request, with an end date.
+- **Restarting a window doesn't steal focus.** It uses `tmux respawn-pane`: `respawn-window`
+  makes the window the current one, and iTerm2 then jumps to that tab while you type to the
+  director.
 
 ## Small things
 
 - **Status line:** `repo (branch) | model | ctx %` from one git call, with the repo of the main
-  checkout even inside a worktree. The director's window also shows what to say to it and the
-  team counts, cached for 15 s (the status line runs after every message), plus your own command
+  checkout even inside a worktree. The director's window also shows what to say to it, the version
+  and the team counts, cached for 15 s and redrawn every 15 s (`refreshInterval`), in the
+  terminal's own colours; the right half is padded from the middle, because Claude Code strips
+  leading spaces. Your own command
   from `~/.tunedteam/statusline`, run in the background every 5 minutes so a slow command never
   holds up the window.
 - **Reading aloud:** the director ends replies with `<speak>…</speak>`; a Stop hook reads only

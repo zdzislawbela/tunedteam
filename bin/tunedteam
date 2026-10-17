@@ -11,6 +11,7 @@ tasks to the specialists, who do the work. The other commands are for the agents
   tunedteam status                     team table: who works, who waits for the owner, context
   tunedteam teams                      the teams running on this Mac and their directors' addresses
   tunedteam tasks                      the tasks in progress and the specialists on each
+  tunedteam schedule [add NAME HH:MM CMD | run|log|off|on|rm NAME]  commands run every day by launchd
   tunedteam report start|eta|done ...  a specialist writes its state into the table
   tunedteam worktree BRANCH [BASE]      new branch + worktree next to the repo, hidden from Spotlight
   tunedteam check [--timeout S] CMD..  run the full check once one of the 2 machine slots is free
@@ -460,6 +461,7 @@ def start():
         print(notice)
     choose_folder()
     iterm_setup()
+    claude_update_setup()
     team = unique_team(os.getcwd())
     if tmux('has-session', '-t', f'={team}').returncode == 0:
         print(f'Team "{team}" is already running; attaching.')
@@ -698,6 +700,142 @@ def close_all(force):
         sys.exit(1)
     print(f'Closing team {team}.')
     tmux('run-shell', '-b', f"sleep 3; {shlex.join(TMUX + ['kill-session', '-t', f'={team}'])}")
+
+
+# ---------- scheduled commands (launchd: no tokens, survives a closed team and a restarted Mac) ----------
+
+AGENTS_DIR = os.path.join(HOME, 'Library', 'LaunchAgents')
+SCHEDULE_PREFIX = 'com.tunedteam.'
+
+
+def job_label(name):
+    return SCHEDULE_PREFIX + name
+
+
+def job_log(name):
+    return os.path.join(HOME, '.tunedteam', 'schedule', f'{name}.log')
+
+
+def jobs():
+    """{name: (plist path, on)} of the commands tunedteam scheduled; an "off" one keeps its file as .plist.off."""
+    out = {}
+    for f in sorted(glob.glob(os.path.join(AGENTS_DIR, SCHEDULE_PREFIX + '*.plist*'))):
+        base = os.path.basename(f)
+        if base.endswith('.plist') or base.endswith('.plist.off'):
+            out[base[len(SCHEDULE_PREFIX):].split('.plist')[0]] = (f, base.endswith('.plist'))
+    return out
+
+
+def launchctl(*args):
+    return run(['launchctl', *args])
+
+
+def schedule_add(name, at, command):
+    import plistlib
+    if not re.fullmatch(r'[A-Za-z0-9_-]+', name):
+        sys.exit('Name: letters, digits, - and _ only.')
+    m = re.fullmatch(r'([01]?\d|2[0-3]):([0-5]\d)', at)
+    if not m or not command:
+        sys.exit('Usage: tunedteam schedule add NAME HH:MM COMMAND...')
+    os.makedirs(AGENTS_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(job_log(name)), exist_ok=True)
+    path = os.path.join(AGENTS_DIR, job_label(name) + '.plist')
+    if name in jobs():
+        schedule_rm(name, quiet=True)
+    # A login shell, so PATH (Homebrew) is the one you have in a terminal; a date line before every run.
+    with open(path, 'wb') as f:
+        plistlib.dump({'Label': job_label(name),
+                       'ProgramArguments': ['/bin/zsh', '-lc', f'echo "== $(date)"; {command}'],
+                       'StartCalendarInterval': {'Hour': int(m.group(1)), 'Minute': int(m.group(2))},
+                       'StandardOutPath': job_log(name), 'StandardErrorPath': job_log(name),
+                       'TunedteamCommand': command, 'TunedteamAt': f'{int(m.group(1)):02d}:{m.group(2)}'}, f)
+    r = launchctl('bootstrap', f'gui/{os.getuid()}', path)
+    if r.returncode:
+        sys.exit(f'launchd refused it: {r.stderr.strip()}')
+    print(f'{name}: every day at {int(m.group(1)):02d}:{m.group(2)}: {command}')
+
+
+def schedule_rm(name, quiet=False):
+    path, on = jobs().get(name, (None, False))
+    if not path:
+        sys.exit(f'No scheduled command "{name}".')
+    if on:
+        launchctl('bootout', f'gui/{os.getuid()}/{job_label(name)}')
+    os.remove(path)
+    if not quiet:
+        print(f'{name}: removed.')
+
+
+def schedule(args):
+    sub, rest = (args[0], args[1:]) if args else ('list', [])
+    if sub == 'add':
+        return schedule_add(rest[0] if rest else '', rest[1] if len(rest) > 1 else '', ' '.join(rest[2:]))
+    js = jobs()
+    if sub != 'list':
+        name = rest[0] if rest else ''
+        if name not in js:
+            sys.exit(f'No scheduled command "{name}". See: tunedteam schedule')
+        path, on = js[name]
+        if sub == 'rm':
+            return schedule_rm(name)
+        if sub == 'run':
+            if not on:
+                sys.exit(f'{name} is off: tunedteam schedule on {name}')
+            launchctl('kickstart', f'gui/{os.getuid()}/{job_label(name)}')
+            return print(f'{name}: started; output in tunedteam schedule log {name}')
+        if sub == 'log':
+            try:
+                return print(''.join(open(job_log(name)).readlines()[-40:]), end='')
+            except OSError:
+                return print(f'{name}: no runs yet.')
+        if sub in ('off', 'on') and on == (sub == 'off'):
+            new = path[:-4] if sub == 'on' else path + '.off'
+            if sub == 'off':
+                launchctl('bootout', f'gui/{os.getuid()}/{job_label(name)}')
+            os.rename(path, new)
+            if sub == 'on':
+                launchctl('bootstrap', f'gui/{os.getuid()}', new)
+            return print(f'{name}: {sub}.')
+        if sub in ('off', 'on'):
+            return print(f'{name}: already {sub}.')
+        sys.exit('Usage: tunedteam schedule [add NAME HH:MM COMMAND... | run|log|off|on|rm NAME]')
+    if not js:
+        return print('Nothing scheduled. Add: tunedteam schedule add NAME HH:MM COMMAND...')
+    print('| Name | When | State | Last run | Exit | Command |')
+    print('|---|---|---|---|---|---|')
+    for name, (path, on) in js.items():
+        p = read_plist(path)
+        info = launchctl('print', f'gui/{os.getuid()}/{job_label(name)}').stdout if on else ''
+        code = re.search(r'last exit code = (\d+)', info)
+        try:
+            last = time.strftime('%d.%m %H:%M', time.localtime(os.path.getmtime(job_log(name))))
+        except OSError:
+            last = 'never'
+        print(f"| {name} | daily {p.get('TunedteamAt', '?')} | {'on' if on else 'off'} | {last} | "
+              f"{code.group(1) if code else '–'} | {short(p.get('TunedteamCommand', ''), 50)} |")
+
+
+def read_plist(path):
+    import plistlib
+    try:
+        with open(path, 'rb') as f:
+            return plistlib.load(f)
+    except Exception:
+        return {}
+
+
+def claude_update_setup():
+    """Once: offer to keep Claude Code up to date every morning, when it came from Homebrew."""
+    path = os.path.join(HOME, '.tunedteam', 'claude-update.json')
+    casks = [os.path.basename(c) for c in glob.glob('/opt/homebrew/Caskroom/claude-code*') + glob.glob('/usr/local/Caskroom/claude-code*')]
+    if not casks or 'claude-update' in jobs() or read_json(path, {}).get('asked'):
+        return
+    pick = select('Update Claude Code every morning (Homebrew, in the background, no tokens)?',
+                  [('yes', 'yes, every day at 07:00'), ('no', 'no')], 'yes')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    write_json(path, {'asked': True})
+    if pick == 'yes':
+        schedule_add('claude-update', '07:00', f'brew upgrade --cask {casks[0]}')
 
 
 def teams():
@@ -988,6 +1126,8 @@ def main():
         teams()
     elif cmd == 'tasks':
         tasks()
+    elif cmd == 'schedule':
+        schedule(a[1:])
     elif cmd == 'report':
         report(a[1:])
     elif cmd == 'worktree':

@@ -115,11 +115,35 @@ iTerm2's settings (tmux windows open as tabs, tab bar location, the tmux gateway
 work from the next start; "leave it" is remembered and not asked again. Other terminals show
 the tmux tab bar at the bottom.
 
-Every window shows one plain status line: `repo (branch) | model | ctx %`.
-The director's window adds two lines above it: what you can say to it ("tasks", "status", "add a
-specialist", "release", "close the team") and how the team is doing (`specialists: 3 working ·
-1 waiting for the owner · 4 free`). Put a command in `~/.tunedteam/statusline` to show its first
-line there too, e.g. deploys on Vercel: it runs in the project folder, in the background, every 5 minutes.
+Every window shows a status line: `repo branch │ model │ ctx %`, the context turning yellow and
+red as the window nears its restart point (director ~20%, specialists ~30%). The director's
+window has two lines, redrawn every 15 s: what you can say to it ("tasks", "status", "add a
+specialist", "release", "close the team") with the tunedteam version on the right, and how the
+team is doing (`● 6 working  ○ 3 free`, plus `▲ 2 WAITING FOR YOU` when anyone waits on you)
+with the usual line on the right. Put a command in `~/.tunedteam/statusline` to show its first
+line there too, e.g. deploys on Vercel: it runs in the project folder, in the background, every
+5 minutes.
+
+## Releases
+
+Who pushes and releases is the third question at start: you (the default) or the team. When the
+team decides, the director releases at most once an hour, all merged commits together: every
+release is a deploy, and a release per merge fills the hosting's deployment storage.
+
+## Scheduled commands
+
+Commands to run every day go to launchd, not to a Claude session: no tokens, and they keep
+running with the team closed or the Mac restarted. The first start offers to update Claude Code
+every morning when it came from Homebrew.
+
+```sh
+tunedteam schedule                                        # list: when, on/off, last run, exit code
+tunedteam schedule add claude-update 07:00 brew upgrade --cask claude-code
+tunedteam schedule run|log|off|on|rm claude-update
+```
+
+Each runs in a login shell (your PATH), its output in `~/.tunedteam/schedule/NAME.log`. The
+director uses the same command when you ask for something recurring.
 
 ## Commands the agents use
 
@@ -127,6 +151,7 @@ line there too, e.g. deploys on Vercel: it runs in the project folder, in the ba
 |---|---|
 | `tunedteam --version` | the installed version (in a git checkout also commits past the release) |
 | `tunedteam tasks` | the tasks in progress, with the specialists, branch, ETA and state of each |
+| `tunedteam schedule …` | commands run every day by launchd: list, add, run, log, off, on, rm |
 | `tunedteam --inside-out` | how it works under the hood and why, also in [INSIDE-OUT.md](INSIDE-OUT.md) |
 | `tunedteam status` | team table: who works, who waits for the owner, context, RAM, ETA |
 | `tunedteam report start\|eta\|done` | a specialist writes its state into the table |
