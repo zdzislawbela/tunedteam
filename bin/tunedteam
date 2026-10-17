@@ -262,6 +262,30 @@ def settings_file(team, name, cfg):
     return path
 
 
+# Each team's own calm, dark background in iTerm2 (and its tabs in the same tint), so it is plain which team a
+# window belongs to. tmux -CC passes a pane's output to iTerm2 unchanged, so iTerm2's own escapes reach it.
+TEAM_COLORS = ['1c2533', '1d2a23', '2a231e', '27202e', '1c2a2c', '2b2224', '25271c', '22232f']
+
+
+def team_color(team, last):
+    """The color this team had, else the first one no other team uses."""
+    if last.get('color') in TEAM_COLORS:
+        return last['color']
+    used = {read_json(f, {}).get('color') for f in glob.glob(os.path.join(HOME, '.tunedteam', 'teams', '*', 'config.json'))
+            if os.path.basename(os.path.dirname(f)) != team}
+    return next((c for c in TEAM_COLORS if c not in used), TEAM_COLORS[len(used) % len(TEAM_COLORS)])
+
+
+def color_cmd(cfg, cmd):
+    """A tmux window command that first sets the team's background (iTerm2 only), then runs cmd."""
+    c = cfg.get('color')
+    if not c:
+        return cmd
+    r, g, b = (int(c[k:k + 2], 16) for k in (0, 2, 4))
+    tab = ''.join(f'\\033]6;1;bg;{n};brightness;{min(255, v * 2)}\\a' for n, v in (('red', r), ('green', g), ('blue', b)))
+    return f"printf '\\033]1337;SetColors=bg={c}\\a{tab}'; {cmd}"
+
+
 def launch(team, name, cfg, first=''):
     """tmux args (env + command) that start one agent's claude."""
     model = 'opus' if name == 'director' else cfg['model']
@@ -285,7 +309,7 @@ def launch(team, name, cfg, first=''):
     args = []
     for k, v in env.items():
         args += ['-e', f'{k}={v}']
-    return args, shlex.join(cmd)
+    return args, color_cmd(cfg, shlex.join(cmd))
 
 
 def first_message(name, cfg, restarted=False):
@@ -649,7 +673,8 @@ def start():
     speak = select('Read aloud:', [('off', 'off'), ('questions', 'only questions for you'), ('all', 'everything')],
                    last.get('speak', 'questions'))
     cfg = dict(account=account, subscription=subscription, specialists=specialists, model=model, control=control, db=db, speak=speak,
-               cwd=os.getcwd(), repos=repos)
+               cwd=os.getcwd(), repos=repos,
+               color=team_color(team, last) if os.environ.get('TERM_PROGRAM') == 'iTerm.app' else None)
     write_json(os.path.join(state_dir(team), 'config.json'), cfg)
     write_json(os.path.join(state_dir(team), 'reports.json'), {})
 
@@ -663,13 +688,13 @@ def start():
         time.sleep(0.3)  # 100 claudes starting in the same second choke the machine
     lazygit = shutil.which('lazygit')
     if lazygit:  # the repo in lazygit, a tab of its own
-        tmux('new-window', '-d', '-t', f'={team}:', '-n', 'lazygit', '-c', cfg['cwd'], lazygit)
+        tmux('new-window', '-d', '-t', f'={team}:', '-n', 'lazygit', '-c', cfg['cwd'], color_cmd(cfg, f'exec {shlex.quote(lazygit)}'))
     for name, command in own_tabs():
         # A plain shell with the command typed in, so the owner's aliases work and Ctrl-C leaves the shell.
-        tmux('new-window', '-d', '-t', f'={team}:', '-n', name, '-c', cfg['cwd'])
+        tmux('new-window', '-d', '-t', f'={team}:', '-n', name, '-c', cfg['cwd'], color_cmd(cfg, 'exec "$SHELL" -l'))
         tmux('send-keys', '-t', f'={team}:={name}', command, 'Enter')
     # The owner's own plain terminal in the project folder, the last tab.
-    tmux('new-window', '-d', '-t', f'={team}:', '-n', 'shell', '-c', cfg['cwd'])
+    tmux('new-window', '-d', '-t', f'={team}:', '-n', 'shell', '-c', cfg['cwd'], color_cmd(cfg, 'exec "$SHELL" -l'))
     attach(team)
 
 
