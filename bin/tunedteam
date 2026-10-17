@@ -443,7 +443,7 @@ def start():
     if not trusted(os.getcwd()):
         sys.exit('Claude Code does not trust this folder yet on this account, and every window would ask. '
                  'Run `claude` here once, answer "Yes, I trust this folder", exit, then run tunedteam again.')
-    specialists = select('Specialists:', [(n, str(n)) for n in (1, 2, 3, 4, 6, 8, 12, 16)], last.get('specialists', 4))
+    specialists = select('Specialists:', [(n, str(n)) for n in (1, 2, 3, 4, 6, 8, 12, 16)], 16)
     model = select('Model for the specialists (the director always runs on Opus):',
                    [('opus', 'Opus'), ('sonnet', 'Sonnet (uses less of your plan)')], last.get('model', 'opus'))
     # The safe answer is always the default here, whatever was picked last time.
