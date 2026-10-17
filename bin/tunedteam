@@ -858,11 +858,22 @@ def statusline():
         team = team_name()
         print(HINTS)
         print(' | '.join(x for x in (cached(team, 'team', 15, lambda: team_summary(team_rows(team))),
-                                     own_status(team)) if x))
+                                     own_status(team), cached(team, 'version', 60, version_line)) if x))
     print(out)
 
 
 HINTS = 'say "tasks", "status", "add a specialist", "release", "close the team" · Ctrl+V pastes an image · !cmd runs here'
+
+
+def version_line():
+    """tunedteam and its version, plus a newer one seen by the daily check (no network here)."""
+    latest = read_json(os.path.join(HOME, '.tunedteam', 'update-check.json'), {}).get('latest', '')
+    mine = version().split()[0]
+    try:
+        newer = tuple(map(int, latest.split('.'))) > tuple(map(int, mine.split('.')))
+    except ValueError:
+        newer = False
+    return f'tunedteam {version()}' + (f' ({latest} available)' if newer else '')
 
 
 def cached(team, key, seconds, compute):
