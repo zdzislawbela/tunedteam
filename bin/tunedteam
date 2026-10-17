@@ -7,6 +7,7 @@ tasks to the specialists, who do the work. The other commands are for the agents
 
   tunedteam                            ask, then start the team for this folder (last tab: your own shell)
   tunedteam --version                  the installed version
+  tunedteam --inside-out               how it works under the hood and why (context, tmux, accounts)
   tunedteam status                     team table: who works, who waits for the owner, context
   tunedteam teams                      the teams running on this Mac and their directors' addresses
   tunedteam report start|eta|done ...  a specialist writes its state into the table
@@ -489,9 +490,23 @@ def start():
     lazygit = shutil.which('lazygit')
     if lazygit:  # the repo in lazygit, a tab of its own
         tmux('new-window', '-d', '-t', f'={team}:', '-n', 'lazygit', '-c', cfg['cwd'], lazygit)
+    for name, command in own_tabs():
+        # A plain shell with the command typed in, so the owner's aliases work and Ctrl-C leaves the shell.
+        tmux('new-window', '-d', '-t', f'={team}:', '-n', name, '-c', cfg['cwd'])
+        tmux('send-keys', '-t', f'={team}:={name}', command, 'Enter')
     # The owner's own plain terminal in the project folder, the last tab.
     tmux('new-window', '-d', '-t', f'={team}:', '-n', 'shell', '-c', cfg['cwd'])
     attach(team)
+
+
+def own_tabs():
+    """The owner's extra tabs from ~/.tunedteam/tabs, one per line: "name: command" (e.g. "awake: caffeinate -d")."""
+    try:
+        lines = open(os.path.join(HOME, '.tunedteam', 'tabs')).read().splitlines()
+    except OSError:
+        return []
+    tabs = [[s.strip() for s in l.split(':', 1)] for l in lines if ':' in l and not l.lstrip().startswith('#')]
+    return [(re.sub(r'[^A-Za-z0-9_-]', '-', n), c) for n, c in tabs if n and c]
 
 
 def attach(team):
@@ -817,6 +832,8 @@ def main():
     cmd = a[0] if a else ''
     if cmd == '':
         start()
+    elif cmd in ('--inside-out', 'inside-out'):
+        print(open(os.path.join(ROOT, 'INSIDE-OUT.md')).read(), end='')
     elif cmd in ('--version', '-v', 'version'):
         print(f'tunedteam {version()}')
         notice = update_notice()

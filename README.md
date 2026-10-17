@@ -95,6 +95,8 @@ and release, and whether to read notifications or only questions aloud. The dire
 answers in the language you write in; agents write to each other in English. Then the tabs open and you talk to the director (tab 0). The last tab, `shell · last resort`,
 is a plain terminal for you in the project folder, for when you have to type something yourself.
 With [lazygit](https://github.com/jesseduffield/lazygit) installed, the tab before it shows the repo in lazygit.
+Tabs of your own go in `~/.tunedteam/tabs`, one per line as `name: command` (e.g. `awake: caffeinate -d`):
+each opens as a shell with the command typed in, so your aliases work.
 All names are in English (`director`, `specialist-N`, `shell`): they are the tab names and
 the names commands take. Agents write to each other at `<team>.<name>` (e.g. `myapp.director`),
 so teams in different projects never mix; `tunedteam teams` lists the running teams. The team
@@ -116,6 +118,7 @@ Every window shows one plain status line: `repo (branch) | model | ctx %`.
 | Command | What it does |
 |---|---|
 | `tunedteam --version` | the installed version (in a git checkout also commits past the release) |
+| `tunedteam --inside-out` | how it works under the hood and why, also in [INSIDE-OUT.md](INSIDE-OUT.md) |
 | `tunedteam status` | team table: who works, who waits for the owner, context, RAM, ETA |
 | `tunedteam report start\|eta\|done` | a specialist writes its state into the table |
 | `tunedteam worktree BRANCH [BASE]` | new branch + worktree in `<repo>-worktrees.noindex/` next to the repo (Spotlight skips `.noindex` folders), node_modules cloned, .env.local copied |
@@ -163,3 +166,7 @@ for text with Polish letters.
 
 One laptop runs at most 2 full checks and 4 dev servers at a time, whatever the team size.
 Each window is a full Claude Code session: many windows use memory and your plan's usage limits.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
