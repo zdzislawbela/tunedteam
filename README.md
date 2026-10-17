@@ -14,15 +14,15 @@ layer of managers cost 2-3x the tokens per commit for about 14% more commits.
 ## Install
 
 ```sh
-brew install zdzislawbela/tap/tuned-team
+brew install zdzislawbela/tap/tunedteam
 ```
 
 Homebrew brings tmux along. Claude Code is installed separately
-(`brew install --cask claude-code`). Update with `brew upgrade tuned-team`. Works in any
+(`brew install --cask claude-code`). Update with `brew upgrade tunedteam`. Works in any
 terminal (Ghostty, iTerm2, Terminal).
 
 To work on Tuned Team itself instead: clone this repo and run `./install.sh`, which links
-`bin/tuned-team` into `~/bin` (needs `tmux`, `claude`, `python3`, `git`).
+`bin/tunedteam` into `~/bin` (needs `tmux`, `claude`, `python3`, `git`).
 
 ## Two Claude accounts (e.g. work and private)
 
@@ -34,7 +34,7 @@ CLAUDE_CONFIG_DIR=~/.claude-priv claude
 ```
 
 Log in inside it (`/login`, pick the private account), then exit. From then on
-`tuned-team` lists both accounts at start with their email and plan, and remembers
+`tunedteam` lists both accounts at start with their email and plan, and remembers
 your choice per project. Name extra folders `~/.claude-<something>` and they are found
 on their own.
 
@@ -70,7 +70,7 @@ If your MCP server has a read-only mode (Supabase does), connect it read-only fo
 With `ANTHROPIC_API_KEY` in the environment, Claude Code may bill the API instead of
 your Max or Pro plan. On an account with a subscription, every Tuned Team window starts
 without that variable, so the windows run on the plan and the agents' commands cannot
-pick the key up. `tuned-team` also warns at start when it finds the key in your shell or
+pick the key up. `tunedteam` also warns at start when it finds the key in your shell or
 in the project's `.env*` files, and the team rules tell agents to run their own AI work
 (tests, scoring, simulations) through `claude -p` or subagents, and the paid API only with
 your yes. Project scripts that read the key from `.env.local` themselves are outside
@@ -81,7 +81,7 @@ Tuned Team's reach: block them in the project (see your AGENTS.md).
 In a project folder:
 
 ```sh
-tuned-team
+tunedteam
 ```
 
 It lists your Claude accounts (`~/.claude`, every `~/.claude-*` folder and your own
@@ -95,7 +95,7 @@ All names are in English (`director`, `specialist-N`, `shell`): they are also
 the addresses agents write to and the names commands take.
 
 Tabs can be clicked. tmux keys: `Ctrl-b w` all windows, `Ctrl-b c` one more terminal of your own, `Ctrl-b 0` the director, `Ctrl-b n` / `p` next / previous,
-`Ctrl-b d` detach (the team keeps running; `tuned-team` again attaches).
+`Ctrl-b d` detach (the team keeps running; `tunedteam` again attaches).
 
 Every window shows one plain status line: `repo (branch) | model | ctx %`.
 
@@ -103,14 +103,14 @@ Every window shows one plain status line: `repo (branch) | model | ctx %`.
 
 | Command | What it does |
 |---|---|
-| `tuned-team status` | team table: who works, who waits for the owner, context, RAM, ETA |
-| `tuned-team report start\|eta\|done` | a specialist writes its state into the table |
-| `tuned-team worktree BRANCH [BASE]` | new branch + worktree in `<repo>-worktrees.noindex/` next to the repo (Spotlight skips `.noindex` folders), node_modules cloned, .env.local copied |
-| `tuned-team check [--timeout S] CMD` | runs the full check once one of the 2 machine slots is free (exit 3: no slot, nothing ran) |
-| `tuned-team done` | task merged: the window restarts with a fresh context; refuses while the task's worktree or branch is still there |
-| `tuned-team add` | opens one more specialist |
-| `tuned-team restart NAME\|self` | restarts a window with a fresh context |
-| `tuned-team close-all [--force]` | lists unmerged work; with none (or `--force`) closes every window |
+| `tunedteam status` | team table: who works, who waits for the owner, context, RAM, ETA |
+| `tunedteam report start\|eta\|done` | a specialist writes its state into the table |
+| `tunedteam worktree BRANCH [BASE]` | new branch + worktree in `<repo>-worktrees.noindex/` next to the repo (Spotlight skips `.noindex` folders), node_modules cloned, .env.local copied |
+| `tunedteam check [--timeout S] CMD` | runs the full check once one of the 2 machine slots is free (exit 3: no slot, nothing ran) |
+| `tunedteam done` | task merged: the window restarts with a fresh context; refuses while the task's worktree or branch is still there |
+| `tunedteam add` | opens one more specialist |
+| `tunedteam restart NAME\|self` | restarts a window with a fresh context |
+| `tunedteam close-all [--force]` | lists unmerged work; with none (or `--force`) closes every window |
 
 `statusline` and `speak` are Claude Code hooks; they are passed to each window with
 `claude --settings`, so your own `settings.json` stays untouched.
@@ -140,8 +140,8 @@ work, so one person can run 16 of them without switching between windows.
 
 - Roles: `roles/team.md` (rules for everyone) plus `roles/director.md` or
   `roles/specialist.md`, passed with `--append-system-prompt-file`.
-- The director's handover before a fresh start goes to `~/.tuned-team/teams/<repo>/handover.md`.
-- State per team: `~/.tuned-team/teams/<repo>/` (answers, reports, generated prompts and settings).
+- The director's handover before a fresh start goes to `~/.tunedteam/teams/<repo>/handover.md`.
+- State per team: `~/.tunedteam/teams/<repo>/` (answers, reports, generated prompts and settings).
 - tmux runs its own server (`tmux -L tuned`) with `tmux.conf` from this repo, so your own tmux is untouched.
 - Every window starts in auto mode. Speaking aloud uses macOS `say`, with a Polish voice
 for text with Polish letters.

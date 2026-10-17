@@ -16,14 +16,14 @@ else
 fi
 git -C "$here" push origin "v$v"
 
-url="https://github.com/zdzislawbela/tuned-team/archive/refs/tags/v$v.tar.gz"
+url="https://github.com/zdzislawbela/tunedteam/archive/refs/tags/v$v.tar.gz"
 sha=$(curl -fsSL "$url" | shasum -a 256 | cut -d' ' -f1)
-sed -i '' -e "s|^  url \".*\"|  url \"$url\"|" -e "s|^  sha256 \".*\"|  sha256 \"$sha\"|" "$tap/Formula/tuned-team.rb"
+sed -i '' -e "s|^  url \".*\"|  url \"$url\"|" -e "s|^  sha256 \".*\"|  sha256 \"$sha\"|" "$tap/Formula/tunedteam.rb"
 git -C "$tap" add -A
-git -C "$tap" commit -q -m "tuned-team $v"
+git -C "$tap" commit -q -m "tunedteam $v"
 if git -C "$tap" remote get-url origin >/dev/null 2>&1; then
   git -C "$tap" push origin main
 else
   gh repo create zdzislawbela/homebrew-tap --public --source "$tap" --push --description "Homebrew formulas"
 fi
-echo "Released tuned-team $v: brew install zdzislawbela/tap/tuned-team"
+echo "Released tunedteam $v: brew install zdzislawbela/tap/tunedteam"

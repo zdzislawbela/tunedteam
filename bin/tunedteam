@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """Tuned Team: a multi-agent dev environment for Claude Code, in tmux.
 
-The owner runs only `tuned-team` in a project folder: a few questions, then one
+The owner runs only `tunedteam` in a project folder: a few questions, then one
 tmux session opens with a tab per agent. You talk to the director; the director hands
 tasks to the specialists, who do the work. The other commands are for the agents.
 
-  tuned-team                            ask, then start the team for this folder (last tab: your own shell)
-  tuned-team status                     team table: who works, who waits for the owner, context
-  tuned-team report start|eta|done ...  a specialist writes its state into the table
-  tuned-team worktree BRANCH [BASE]      new branch + worktree next to the repo, hidden from Spotlight
-  tuned-team check [--timeout S] CMD..  run the full check once one of the 2 machine slots is free
-  tuned-team done                       task merged, worktree and branch gone: restart this window fresh
-  tuned-team add                        open one more specialist
-  tuned-team restart NAME               restart a window with a fresh context
-  tuned-team close-all [--force]        close every window (lists unmerged work first)
-  tuned-team statusline                 Claude Code status line (JSON on stdin)
-  tuned-team speak                      Claude Code hook: reads <speak> text or a wait aloud
+  tunedteam                            ask, then start the team for this folder (last tab: your own shell)
+  tunedteam status                     team table: who works, who waits for the owner, context
+  tunedteam report start|eta|done ...  a specialist writes its state into the table
+  tunedteam worktree BRANCH [BASE]      new branch + worktree next to the repo, hidden from Spotlight
+  tunedteam check [--timeout S] CMD..  run the full check once one of the 2 machine slots is free
+  tunedteam done                       task merged, worktree and branch gone: restart this window fresh
+  tunedteam add                        open one more specialist
+  tunedteam restart NAME               restart a window with a fresh context
+  tunedteam close-all [--force]        close every window (lists unmerged work first)
+  tunedteam statusline                 Claude Code status line (JSON on stdin)
+  tunedteam speak                      Claude Code hook: reads <speak> text or a wait aloud
 """
 import glob, json, os, re, shlex, subprocess, sys, time
 
@@ -89,7 +89,10 @@ def team_name(path=None):
 
 
 def state_dir(team):
-    d = os.path.join(HOME, '.tuned-team', 'teams', team)
+    old, new = os.path.join(HOME, '.tuned-team'), os.path.join(HOME, '.tunedteam')
+    if os.path.isdir(old) and not os.path.exists(new):
+        os.rename(old, new)  # the state folder of versions before the rename
+    d = os.path.join(new, 'teams', team)
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -204,7 +207,7 @@ def launch(team, name, cfg, first=''):
 def first_message(name, cfg, restarted=False):
     if name == 'director':
         if restarted:
-            return ('You were restarted with a fresh context. Read your handover file, run `tuned-team status`, '
+            return ('You were restarted with a fresh context. Read your handover file, run `tunedteam status`, '
                     'then continue where the handover says.')
         return (f"start. Team: {cfg['specialists']} specialist(s). "
                 'Tell the owner who is on the team, the control mode, and that you are ready for a task.')
@@ -291,7 +294,7 @@ def choose_account(last):
         print('This account is not logged in. Logging in now (a browser opens).')
         subprocess.run(['claude', 'auth', 'login'])
         if not auth_status(d).get('loggedIn'):
-            sys.exit('Still not logged in; nothing opened. Run tuned-team again after logging in.')
+            sys.exit('Still not logged in; nothing opened. Run tunedteam again after logging in.')
     st = auth_status(d)
     print(f"Using {st.get('email') or 'API key'} ({st.get('subscriptionType') or st.get('authMethod', '?')}).")
     return d, bool(st.get('subscriptionType'))
@@ -340,7 +343,7 @@ def start():
     print()
     if not trusted(os.getcwd()):
         sys.exit('Claude Code does not trust this folder yet on this account, and every window would ask. '
-                 'Run `claude` here once, answer "Yes, I trust this folder", exit, then run tuned-team again.')
+                 'Run `claude` here once, answer "Yes, I trust this folder", exit, then run tunedteam again.')
     specialists = ask_number('How many specialists?', last.get('specialists', 2), 1, 100)
     model = ask('Model for the specialists (opus/sonnet)? The director always runs on opus.',
                 last.get('model', 'opus'), ['opus', 'sonnet'])
@@ -408,7 +411,7 @@ def restart(name):
 
 def done():
     """Task merged, worktree and branch removed: the window starts over with a fresh context.
-    Refuses while the worktree or an unmerged branch from `tuned-team worktree` is still there."""
+    Refuses while the worktree or an unmerged branch from `tunedteam worktree` is still there."""
     name, team = me(), team_name()
     r = read_json(os.path.join(state_dir(team), 'reports.json'), {}).get(name, {})
     left = []
@@ -428,7 +431,7 @@ def worktree(args):
     """New branch + worktree in <repo>-worktrees.noindex/ next to the repo (Spotlight skips .noindex folders).
     node_modules is cloned (APFS clone: seconds, no extra disk) and .env.local copied, if the repo has them."""
     if not args:
-        sys.exit('Usage: tuned-team worktree <branch> [base]')
+        sys.exit('Usage: tunedteam worktree <branch> [base]')
     branch = args[0]
     top = repo_root(os.getcwd())
     base = args[1] if len(args) > 1 else (
@@ -453,7 +456,7 @@ def worktree(args):
 def report(args):
     kind = args[0] if args else ''
     if kind not in ('start', 'eta', 'done'):
-        sys.exit('Usage: tuned-team report start "~15:00" "what" | eta "~16:00" | done "commit abc123"')
+        sys.exit('Usage: tunedteam report start "~15:00" "what" | eta "~16:00" | done "commit abc123"')
     name, team = me(), team_name()
     path = os.path.join(state_dir(team), 'reports.json')
     reports = read_json(path, {})
@@ -477,11 +480,11 @@ def check(args):
     waited = 0
     while running() >= CHECK_SLOTS:
         if timeout and waited >= timeout:
-            print(f'tuned-team check: still {running()} checks running after {waited} s (limit {CHECK_SLOTS}). '
+            print(f'tunedteam check: still {running()} checks running after {waited} s (limit {CHECK_SLOTS}). '
                   'Nothing ran, do not merge; try again later.', file=sys.stderr)
             sys.exit(3)
         if waited % 60 == 0:
-            print(f'tuned-team check: {running()} checks running (limit {CHECK_SLOTS}), waiting...', file=sys.stderr)
+            print(f'tunedteam check: {running()} checks running (limit {CHECK_SLOTS}), waiting...', file=sys.stderr)
         time.sleep(15)
         waited += 15
     if args:
@@ -506,7 +509,7 @@ def close_all(force):
     if open_work and not force:
         print('Unmerged work, the team stays open:')
         print('\n'.join(f'  - {w}' for w in open_work))
-        print("Close anyway? Only after the owner's yes: tuned-team close-all --force")
+        print("Close anyway? Only after the owner's yes: tunedteam close-all --force")
         sys.exit(1)
     print(f'Closing team {team}.')
     tmux('run-shell', '-b', f"sleep 3; {shlex.join(TMUX + ['kill-session', '-t', f'={team}'])}")
