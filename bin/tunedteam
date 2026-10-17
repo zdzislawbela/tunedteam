@@ -8,6 +8,7 @@ tasks to the specialists, who do the work. The other commands are for the agents
   tunedteam                            ask, then start the team for this folder (last tab: your own shell)
   tunedteam --version                  the installed version
   tunedteam status                     team table: who works, who waits for the owner, context
+  tunedteam teams                      the teams running on this Mac and their directors' addresses
   tunedteam report start|eta|done ...  a specialist writes its state into the table
   tunedteam worktree BRANCH [BASE]      new branch + worktree next to the repo, hidden from Spotlight
   tunedteam check [--timeout S] CMD..  run the full check once one of the 2 machine slots is free
@@ -18,7 +19,7 @@ tasks to the specialists, who do the work. The other commands are for the agents
   tunedteam statusline                 Claude Code status line (JSON on stdin)
   tunedteam speak                      Claude Code hook: reads <speak> text or a wait aloud
 """
-import glob, json, os, re, shlex, subprocess, sys, time
+import glob, json, os, re, shlex, shutil, subprocess, sys, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 ROLES = os.path.join(ROOT, 'roles')
@@ -131,6 +132,23 @@ def team_name(path=None):
     return re.sub(r'[^A-Za-z0-9_-]', '-', os.path.basename(repo_root(path or os.getcwd())))
 
 
+def unique_team(path):
+    """The folder's name, plus -2, -3… when another project folder of the same name already has that team."""
+    root = repo_root(path)
+    base = team_name(path)
+    for k in range(1, 100):
+        team = base if k == 1 else f'{base}-{k}'
+        cwd = read_json(os.path.join(HOME, '.tunedteam', 'teams', team, 'config.json'), {}).get('cwd')
+        if not cwd or not os.path.isdir(cwd) or os.path.realpath(cwd) == root:
+            return team
+    sys.exit(f'Too many projects named {base}.')
+
+
+def address(team, name):
+    """The agent's name on this Mac (SendMessage, ListAgents): unique across teams, e.g. myapp.specialist-3."""
+    return f'{team}.{name}'
+
+
 def state_dir(team):
     old, new = os.path.join(HOME, '.tuned-team'), os.path.join(HOME, '.tunedteam')
     if os.path.isdir(old) and not os.path.exists(new):
@@ -183,12 +201,14 @@ def handover_path(team):
 
 
 def team_lines(name, cfg, team):
-    """Who this window works with, from the windows that are open now."""
+    """Which team this window is in and who it works with, from the windows that are open now."""
     specs = numbers(team, 'specialist') or list(range(1, cfg['specialists'] + 1))
+    mates = [address(team, n) for n in ['director'] + [f'specialist-{k}' for k in specs] if n != name]
+    out = (f"Your team: {team} (project {cfg['cwd']}). You are {address(team, name)}. "
+           f"Your teammates: {', '.join(mates)}.")
     if name == 'director':
-        return (f"Your specialists: {', '.join(f'specialist-{k}' for k in specs)}. "
-                f"Your handover file: {handover_path(team)}")
-    return f'You are {name}. Tasks come from the director.'
+        return out + f' Your handover file: {handover_path(team)}'
+    return out + ' Tasks come from the director.'
 
 
 def prompt_file(team, name, cfg):
@@ -233,7 +253,7 @@ def launch(team, name, cfg, first=''):
     # agents' commands cannot pick the key up from the environment.
     if cfg.get('subscription', True):
         prefix = (prefix or ['env']) + ['-u', 'ANTHROPIC_API_KEY']
-    cmd = prefix + ['claude', '-n', name, '--model', model, '--permission-mode', 'auto',
+    cmd = prefix + ['claude', '-n', address(team, name), '--model', model, '--permission-mode', 'auto',
            '--settings', settings_file(team, name, cfg),
            '--append-system-prompt-file', prompt_file(team, name, cfg)]
     if first:
@@ -433,7 +453,8 @@ def start():
     if notice:
         print(notice)
     choose_folder()
-    team = team_name(os.getcwd())
+    iterm_setup()
+    team = unique_team(os.getcwd())
     if tmux('has-session', '-t', f'={team}').returncode == 0:
         print(f'Team "{team}" is already running; attaching.')
         return attach(team)
@@ -465,6 +486,9 @@ def start():
     for k in range(1, specialists + 1):
         open_window(team, f'specialist-{k}', cfg)
         time.sleep(0.3)  # 100 claudes starting in the same second choke the machine
+    lazygit = shutil.which('lazygit')
+    if lazygit:  # the repo in lazygit, a tab of its own
+        tmux('new-window', '-d', '-t', f'={team}:', '-n', 'lazygit', '-c', cfg['cwd'], lazygit)
     # The owner's own plain terminal in the project folder, the last tab.
     tmux('new-window', '-d', '-t', f'={team}:', '-n', 'shell', '-c', cfg['cwd'])
     attach(team)
@@ -480,15 +504,43 @@ def attach(team):
         if iterm_tmux_tabs():
             # iTerm2's tmux integration: every agent becomes a native iTerm2 tab (tab bar can sit on the left).
             os.execvp(TMUX[0], TMUX + ['-CC', 'attach-session', '-t', f'={team}'])
-        print('Tip: iTerm2 → Settings → General → tmux → When attaching, restore windows as: '
-              'Tabs in the attaching window, and every agent becomes a native iTerm2 tab.')
     os.execvp(TMUX[0], TMUX + ['attach-session', '-t', f'={team}'])
 
 
 def iterm_tmux_tabs():
     """True when iTerm2 opens tmux windows as tabs. Unset (0, its default) means one iTerm2 window per agent."""
+    if ITERM_JUST_SET:
+        return False  # a running iTerm2 may not have read the new settings yet: tabs from the next start
     value = run(['defaults', 'read', 'com.googlecode.iterm2', 'OpenTmuxWindowsIn']).stdout.strip()
     return value not in ('', '0')
+
+
+ITERM_JUST_SET = False
+# iTerm2 settings keys: tmux windows as tabs in the attaching window, tab bar on the left,
+# the tmux gateway tab hidden. Read from iTerm2's own plist after setting them in its Settings.
+ITERM_TABS = {'OpenTmuxWindowsIn': 2, 'AutoHideTmuxClientSession': True}
+ITERM_SIDEBAR = {**ITERM_TABS, 'TabViewType': 2}
+
+
+def iterm_setup():
+    """In iTerm2, once: offer the tunedteam layout (every agent a native tab). Asks only while iTerm2 still opens
+    tmux windows as separate windows, and never again after "leave it"."""
+    global ITERM_JUST_SET
+    path = os.path.join(HOME, '.tunedteam', 'iterm.json')
+    if os.environ.get('TERM_PROGRAM') != 'iTerm.app' or iterm_tmux_tabs() or read_json(path, {}).get('declined'):
+        return
+    pick = select('iTerm2 layout:', [('sidebar', 'tunedteam setup: agents as a list on the left'),
+                                     ('tabs', 'agents as tabs on top'),
+                                     ('no', 'leave iTerm2 as it is (tmux tab bar at the bottom)')], 'sidebar')
+    if pick == 'no':
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        return write_json(path, {'declined': True})
+    for key, value in (ITERM_SIDEBAR if pick == 'sidebar' else ITERM_TABS).items():
+        kind = ['-bool', 'true' if value else 'false'] if isinstance(value, bool) else ['-int', str(value)]
+        run(['defaults', 'write', 'com.googlecode.iterm2', key, *kind])
+    ITERM_JUST_SET = True
+    print('iTerm2 is set. This start uses the tmux tab bar; from the next start (or after restarting iTerm2) '
+          'every agent is an iTerm2 tab.')
 
 
 # ---------- agents' commands ----------
@@ -626,6 +678,17 @@ def close_all(force):
     tmux('run-shell', '-b', f"sleep 3; {shlex.join(TMUX + ['kill-session', '-t', f'={team}'])}")
 
 
+def teams():
+    """The teams running on this Mac, each with its project and its director's address."""
+    names = tmux('list-sessions', '-F', '#{session_name}').stdout.split()
+    if not names:
+        return print('No team is running.')
+    mine = os.environ.get('TUNED_TEAM')
+    for t in names:
+        cwd = read_json(os.path.join(HOME, '.tunedteam', 'teams', t, 'config.json'), {}).get('cwd', '?')
+        print(f"{address(t, 'director')}  {cwd.replace(HOME, '~')}" + ('  (your team)' if t == mine else ''))
+
+
 # ---------- status table ----------
 
 def claude_pid(pane_pid):
@@ -761,6 +824,8 @@ def main():
             print(notice)
     elif cmd == 'status':
         status()
+    elif cmd == 'teams':
+        teams()
     elif cmd == 'report':
         report(a[1:])
     elif cmd == 'worktree':

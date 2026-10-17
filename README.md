@@ -94,18 +94,20 @@ logged-out account. Then it asks for the number of specialists, the model, who d
 and release, and whether to read notifications or only questions aloud. The director
 answers in the language you write in; agents write to each other in English. Then the tabs open and you talk to the director (tab 0). The last tab, `shell · last resort`,
 is a plain terminal for you in the project folder, for when you have to type something yourself.
-All names are in English (`director`, `specialist-N`, `shell`): they are also
-the addresses agents write to and the names commands take.
+With [lazygit](https://github.com/jesseduffield/lazygit) installed, the tab before it shows the repo in lazygit.
+All names are in English (`director`, `specialist-N`, `shell`): they are the tab names and
+the names commands take. Agents write to each other at `<team>.<name>` (e.g. `myapp.director`),
+so teams in different projects never mix; `tunedteam teams` lists the running teams. The team
+is named after the project folder; a second project with the same folder name gets `-2`.
 
 Tabs can be clicked. tmux keys: `Ctrl-b w` all windows, `Ctrl-b c` one more terminal of your own, `Ctrl-b 0` the director, `Ctrl-b n` / `p` next / previous,
 `Ctrl-b d` detach (the team keeps running; `tunedteam` again attaches).
 
-In **iTerm2** the team opens through iTerm2's tmux integration: every agent is a native
-iTerm2 tab you click, and the tab bar can sit on the left as a list of agents. Set once in
-iTerm2 → Settings: *Appearance → General → Tab bar location: Left*, and *General → tmux →
-When attaching, restore windows as: Tabs in the attaching window*. Until that second setting
-is on, tunedteam attaches the plain way (iTerm2's default would open one window per agent).
-Other terminals show the tmux tab bar at the bottom.
+In **iTerm2** the first start asks for the layout: the tunedteam setup (every agent a native
+iTerm2 tab, listed on the left), tabs on top, or leave iTerm2 as it is. The first two change
+iTerm2's settings (tmux windows open as tabs, tab bar location, the tmux gateway tab hidden) and
+work from the next start; "leave it" is remembered and not asked again. Other terminals show
+the tmux tab bar at the bottom.
 
 Every window shows one plain status line: `repo (branch) | model | ctx %`.
 
