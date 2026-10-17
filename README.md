@@ -100,6 +100,12 @@ the addresses agents write to and the names commands take.
 Tabs can be clicked. tmux keys: `Ctrl-b w` all windows, `Ctrl-b c` one more terminal of your own, `Ctrl-b 0` the director, `Ctrl-b n` / `p` next / previous,
 `Ctrl-b d` detach (the team keeps running; `tunedteam` again attaches).
 
+In **iTerm2** the team opens through iTerm2's tmux integration: every agent is a native
+iTerm2 tab you click, and the tab bar can sit on the left as a list of agents. Set once in
+iTerm2 → Settings: *Appearance → General → Tab bar location: Left*, and *General → tmux →
+When attaching, restore windows as: Tabs in the attaching window*. Other terminals show the
+tmux tab bar at the bottom.
+
 Every window shows one plain status line: `repo (branch) | model | ctx %`.
 
 ## Commands the agents use

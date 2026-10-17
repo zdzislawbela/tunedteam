@@ -476,6 +476,9 @@ def attach(team):
         return print(f'Team {team} is running: {shlex.join(TMUX + ["attach-session", "-t", team])}')
     if os.environ.get('TMUX'):
         os.execvp(TMUX[0], TMUX + ['switch-client', '-t', f'={team}'])
+    if os.environ.get('TERM_PROGRAM') == 'iTerm.app':
+        # iTerm2's tmux integration: every agent becomes a native iTerm2 tab (tab bar can sit on the left).
+        os.execvp(TMUX[0], TMUX + ['-CC', 'attach-session', '-t', f'={team}'])
     os.execvp(TMUX[0], TMUX + ['attach-session', '-t', f'={team}'])
 
 
