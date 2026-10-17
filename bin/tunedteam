@@ -1026,15 +1026,14 @@ def statusline():
     if name:  # in a team: which tunedteam runs it, in every window
         out += SEP + paint(DIM, cached(team_name(), 'version', 60, version_line))
     if name == 'director':
-        # The window the owner talks to: what to say on the left, the team and the owner's own line, with the
-        # usual line and the version pushed to the right edge.
+        # The window the owner talks to, top to bottom: the usual line, the team and the owner's own line,
+        # the Mac, what to say.
         team = team_name()
-        width = int(os.environ.get('COLUMNS') or 0)
-        team_line = SEP.join(x for x in (cached(team, 'team', 15, lambda: team_counts(team_rows(team))),
-                                         own_status(team)) if x)
-        print(HINTS)
-        print(spread(team_line, out, width))
+        print(out)
+        print(SEP.join(x for x in (cached(team, 'team', 15, lambda: team_counts(team_rows(team))),
+                                   own_status(team)) if x))
         print(cached(team, 'health', 10, machine_health))
+        print(HINTS)
     elif name:
         # A specialist: who it is and its task on the left, the same right half as the director's.
         rep = read_json(os.path.join(state_dir(team_name()), 'reports.json'), {}).get(name, {})

@@ -120,12 +120,12 @@ the tmux tab bar at the bottom.
 
 Every window shows the same right half: `repo version branch │ model │ ctx % │ tunedteam version`,
 the context turning yellow and red as the window nears its restart point (director ~20%,
-specialists ~30%). On the left a specialist shows its name and task; the director shows how the
-team is doing (`● 6 working  ○ 3 free`, plus `▲ 2 WAITING FOR YOU` when anyone waits on you), with
-a line above of what you can say to it ("tasks", "status", "add a specialist", "release", "close
-the team"), redrawn every 15 s, and a line below about the Mac: a grey `● Mac ok`, or only what
-needs you, with what to do (`▲ 5 dev servers (limit 4): stop 1`, `▲ RAM 44/48 GB, swap 3.2 GB:
-close a window`, `▲ CPU 160%`), measured at most every 10 s. Put a command in `~/.tunedteam/statusline` to show its first
+specialists ~30%). On the left a specialist shows its name and task. The director has it as the
+top line, then how the team is doing (`● 6 working  ○ 3 free`, plus `▲ 2 WAITING FOR YOU` when
+anyone waits on you), redrawn every 15 s; below it a line about the Mac: a grey `● Mac ok`, or only what needs you,
+with what to do (`▲ 5 dev servers (limit 4): stop 1`, `▲ RAM 44/48 GB, swap 3.2 GB: close a
+window`, `▲ CPU 160%`), measured at most every 10 s; and at the bottom what you can say to it
+("tasks", "status", "add a specialist", "release", "close the team"). Put a command in `~/.tunedteam/statusline` to show its first
 line there too, e.g. deploys on Vercel: it runs in the project folder, in the background, every
 5 minutes.
 
