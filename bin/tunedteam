@@ -583,7 +583,9 @@ def restart(name):
     reports.pop(name, None)
     write_json(os.path.join(state_dir(team), 'reports.json'), reports)
     env, cmd = launch(team, name, cfg, first_message(name, cfg, restarted=True))
-    respawn = shlex.join(TMUX + ['respawn-window', '-k', '-t', f'={team}:={name}', '-c', cfg['cwd'], *env, cmd])
+    # respawn-pane, not respawn-window: respawn-window makes the window the session's current one, and iTerm2
+    # (tmux -CC) then jumps to that tab while the owner is typing to the director.
+    respawn = shlex.join(TMUX + ['respawn-pane', '-k', '-t', f'={team}:={name}', '-c', cfg['cwd'], *env, cmd])
     tmux('run-shell', '-b', f'sleep {delay}; {respawn}')
     print(f'{name} restarts with a fresh context' + (f' in {delay} s.' if delay else '.'))
 
