@@ -498,8 +498,10 @@ def find_repos(top, depth=6):
 
 
 def repo_candidates():
-    """The repos to offer: current folder (if a repo), recent teams' folders, then repos found in ~/repos."""
+    """The repos to offer: current folder (if a repo) and the repos below it, recent teams' folders, then repos
+    found in ~/repos."""
     here = os.getcwd()
+    below = [d for d in find_repos(here, 4) if not re.search(r'-check-\d+$', d)] if here != HOME else []
     recent = []
     for f in glob.glob(os.path.join(HOME, '.tunedteam', 'teams', '*', 'config.json')):
         cwd = read_json(f, {}).get('cwd')
@@ -508,10 +510,27 @@ def repo_candidates():
     recent = [c for _, c in sorted(recent, reverse=True)]
     found = [d for d in find_repos(os.path.join(HOME, 'repos')) if not re.search(r'-check-\d+$', d)]
     paths = []
-    for d in [repo_root(x) for x in ([here] if is_repo(here) else []) + recent] + found:
+    for d in [repo_root(here)] * is_repo(here) + below + [repo_root(x) for x in recent] + found:
         if d not in paths:
             paths.append(d)
     return paths
+
+
+def ask_folder():
+    """Type a folder, with Tab completing the path (as in the shell)."""
+    try:
+        import readline
+        def complete(text, state):
+            hits = [p + '/' for p in sorted(glob.glob(os.path.expanduser(text) + '*')) if os.path.isdir(p)]
+            hits = [h.replace(HOME, '~', 1) if text.startswith('~') else h for h in hits]
+            return hits[state] if state < len(hits) else None
+        readline.set_completer_delims(' \t\n')
+        readline.set_completer(complete)
+        readline.parse_and_bind('bind ^I rl_complete' if 'libedit' in (readline.__doc__ or '') else 'tab: complete')
+    except ImportError:
+        pass
+    print(f'Type the path, Tab completes it (e.g. ~/repos/…). Now in: {os.getcwd().replace(HOME, "~", 1)}')
+    return os.path.realpath(os.path.expanduser(input('Folder: ').strip()))
 
 
 def choose_folder():
@@ -520,7 +539,7 @@ def choose_folder():
     other = '__other__'
     pick = select('Project folder:', [(d, d.replace(HOME, '~')) for d in paths] + [(other, 'Other folder…')])
     if pick == other:
-        typed = os.path.expanduser(input('Folder: ').strip())
+        typed = ask_folder()
         if not os.path.isdir(typed):
             sys.exit(f'No such folder: {typed}')
         pick = typed
@@ -543,7 +562,7 @@ def choose_repos(last):
                          before)
     if other in picked:
         picked.remove(other)
-        typed = os.path.expanduser(input('Folder: ').strip())
+        typed = ask_folder()
         if not is_repo(typed):
             sys.exit(f'Not a git repo: {typed}')
         picked.append(repo_root(typed))
