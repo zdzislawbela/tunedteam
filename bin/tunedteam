@@ -667,7 +667,10 @@ def iterm_tmux_tabs():
 ITERM_JUST_SET = False
 # iTerm2 settings keys: tmux windows as tabs in the attaching window, tab bar on the left,
 # the tmux gateway tab hidden. Read from iTerm2's own plist after setting them in its Settings.
-ITERM_TABS = {'OpenTmuxWindowsIn': 2, 'AutoHideTmuxClientSession': True}
+# TmuxDashboardLimit: with at least this many windows (iTerm2's default: 10) iTerm2 opens none and shows only
+# its tmux Dashboard, and a team has 12 or more.
+ITERM_DASHBOARD_LIMIT = 50
+ITERM_TABS = {'OpenTmuxWindowsIn': 2, 'AutoHideTmuxClientSession': True, 'TmuxDashboardLimit': ITERM_DASHBOARD_LIMIT}
 ITERM_SIDEBAR = {**ITERM_TABS, 'TabViewType': 2}
 
 
@@ -676,7 +679,16 @@ def iterm_setup():
     tmux windows as separate windows, and never again after "leave it"."""
     global ITERM_JUST_SET
     path = os.path.join(HOME, '.tunedteam', 'iterm.json')
-    if os.environ.get('TERM_PROGRAM') != 'iTerm.app' or iterm_tmux_tabs() or read_json(path, {}).get('declined'):
+    if os.environ.get('TERM_PROGRAM') != 'iTerm.app':
+        return
+    if iterm_tmux_tabs():
+        limit = run(['defaults', 'read', 'com.googlecode.iterm2', 'TmuxDashboardLimit']).stdout.strip()
+        if not limit.isdigit() or int(limit) < ITERM_DASHBOARD_LIMIT:
+            run(['defaults', 'write', 'com.googlecode.iterm2', 'TmuxDashboardLimit', '-int', str(ITERM_DASHBOARD_LIMIT)])
+            print(f'iTerm2: tabs open for teams of up to {ITERM_DASHBOARD_LIMIT} windows (was {limit or 10}: '
+                  'more windows than that opened no tab, only the tmux Dashboard).')
+        return
+    if read_json(path, {}).get('declined'):
         return
     pick = select('iTerm2 layout:', [('sidebar', 'tunedteam setup: agents as a list on the left'),
                                      ('tabs', 'agents as tabs on top'),

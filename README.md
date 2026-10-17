@@ -23,7 +23,8 @@ terminal (Ghostty, iTerm2, Terminal).
 
 New to tmux? Use **iTerm2** (`brew install --cask iterm2`): every agent is a normal tab you
 click, listed on the left, and no tmux keys to learn. The first start in iTerm2 offers this
-layout.
+layout. It also raises iTerm2's "Don't open windows when attaching if there are at least this many
+windows" from 10 to 50: a team has 12 windows or more, and below that limit iTerm2 opened no tab, only its tmux Dashboard.
 
 To work on Tuned Team itself instead: clone this repo and run `./install.sh`, which links
 `bin/tunedteam` into `~/bin` (needs `tmux`, `claude`, `python3`, `git`).
