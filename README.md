@@ -103,6 +103,7 @@ Every window shows one plain status line: `repo (branch) | model | ctx %`.
 
 | Command | What it does |
 |---|---|
+| `tunedteam --version` | the installed version (in a git checkout also commits past the release) |
 | `tunedteam status` | team table: who works, who waits for the owner, context, RAM, ETA |
 | `tunedteam report start\|eta\|done` | a specialist writes its state into the table |
 | `tunedteam worktree BRANCH [BASE]` | new branch + worktree in `<repo>-worktrees.noindex/` next to the repo (Spotlight skips `.noindex` folders), node_modules cloned, .env.local copied |

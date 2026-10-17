@@ -6,6 +6,7 @@ tmux session opens with a tab per agent. You talk to the director; the director 
 tasks to the specialists, who do the work. The other commands are for the agents.
 
   tunedteam                            ask, then start the team for this folder (last tab: your own shell)
+  tunedteam --version                  the installed version
   tunedteam status                     team table: who works, who waits for the owner, context
   tunedteam report start|eta|done ...  a specialist writes its state into the table
   tunedteam worktree BRANCH [BASE]      new branch + worktree next to the repo, hidden from Spotlight
@@ -59,6 +60,19 @@ LANGUAGE = ("Language: reply to the owner in the language the owner writes in. "
             "Write to teammates in English.")
 WAIT = '{name} is waiting for you'
 POLISH = re.compile('[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]')
+
+
+def version():
+    """VERSION from the release; in a git checkout also how far the code is past that release."""
+    try:
+        v = open(os.path.join(ROOT, 'VERSION')).read().strip()
+    except OSError:
+        v = '?'
+    if os.path.isdir(os.path.join(ROOT, '.git')):
+        desc = run(['git', '-C', ROOT, 'describe', '--tags', '--dirty']).stdout.strip()
+        if desc and desc != f'v{v}':
+            return f'{v} (dev: {desc})'
+    return v
 
 
 def voice(text):
@@ -337,7 +351,7 @@ def start():
         print(f'Team "{team}" is already running; attaching.')
         return attach(team)
     last = config(team)
-    print(f'Tuned Team for {team}. Enter keeps the value in [brackets].\n')
+    print(f'Tuned Team {version()} for {team}. Enter keeps the value in [brackets].\n')
     account, subscription = choose_account(last)
     api_key_warning(os.getcwd(), subscription)
     print()
@@ -643,6 +657,8 @@ def main():
     cmd = a[0] if a else ''
     if cmd == '':
         start()
+    elif cmd in ('--version', '-v', 'version'):
+        print(f'tunedteam {version()}')
     elif cmd == 'status':
         status()
     elif cmd == 'report':

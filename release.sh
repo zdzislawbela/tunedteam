@@ -8,6 +8,11 @@ v=${1:?usage: sh release.sh 0.2.0}
 here=$(cd "$(dirname "$0")" && pwd)
 tap=${TUNED_TAP_DIR:-$HOME/repos/priv/homebrew-tap}
 
+# The version the program reports (tunedteam --version, start screen).
+if [ "$(cat "$here/VERSION" 2>/dev/null)" != "$v" ]; then
+  echo "$v" > "$here/VERSION"
+  git -C "$here" commit -q -m "Release $v" -- VERSION
+fi
 git -C "$here" push origin main
 if git -C "$here" rev-parse -q --verify "refs/tags/v$v" >/dev/null; then
   echo "Tag v$v already exists, using it."
