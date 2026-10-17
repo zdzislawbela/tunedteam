@@ -32,6 +32,8 @@ HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.environ.get('CLAUDE_CONFIG_DIR') or os.path.join(HOME, '.claude')
 CHECK_SLOTS = int(os.environ.get('TUNED_CHECK_MAX', 2))
 CHECK_PATTERN = os.environ.get('TUNED_CHECK_PATTERN', 'npm run check')
+DEV_MAX = int(os.environ.get('TUNED_DEV_MAX', 4))
+DEV_PATTERN = re.compile(os.environ.get('TUNED_DEV_PATTERN', r'\b(next|vite|nuxt|astro) dev\b|npm run dev\b'))
 
 CONTROL = {
     'owner': "Control mode for this project: THE OWNER DECIDES. Release, push, deploy and changes to settings or "
@@ -1032,6 +1034,7 @@ def statusline():
                                          own_status(team)) if x)
         print(HINTS)
         print(spread(team_line, out, width))
+        print(cached(team, 'health', 10, machine_health))
     elif name:
         # A specialist: who it is and its task on the left, the same right half as the director's.
         rep = read_json(os.path.join(state_dir(team_name()), 'reports.json'), {}).get(name, {})
@@ -1098,6 +1101,46 @@ def cached(team, key, seconds, compute):
         c = {'at': time.time(), 'text': compute()}
         write_json(path, c)
     return c.get('text', '')
+
+
+def machine_health():
+    """The Mac at a glance: a grey "Mac ok", or only what needs the owner, with what to do. Jev picked this over
+    showing every number all the time (2026-10-17, 79-84% against each of three number variants)."""
+    try:
+        mem, ncpu, pressure, swap = run(['sysctl', '-n', 'hw.memsize', 'hw.ncpu', 'kern.memorystatus_vm_pressure_level',
+                                         'vm.swapusage']).stdout.splitlines()[:4]
+        stat = run(['vm_stat']).stdout
+        page = int(re.search(r'page size of (\d+)', stat).group(1))
+        vm = {k.strip(): int(v.strip(' .')) for k, v in (l.split(':', 1) for l in stat.splitlines()[1:] if ':' in l)
+              if v.strip(' .').isdigit()}
+    except (ValueError, IndexError, AttributeError):
+        return ''
+    total, ncpu, pressure = int(mem), int(ncpu), int(pressure)
+    # What Activity Monitor calls Memory Used: app memory + wired + compressed.
+    used = (vm.get('Anonymous pages', 0) - vm.get('Pages purgeable', 0) + vm.get('Pages wired down', 0)
+            + vm.get('Pages occupied by compressor', 0)) * page
+    m = re.search(r'used = ([\d.]+)([MG])', swap)
+    swap_gb = float(m.group(1)) / (1 if m.group(2) == 'G' else 1024) if m else 0
+    alarms = []
+    gb = lambda b: f'{b / 2 ** 30:.0f}'
+    ram_pct = used * 100 / total
+    if ram_pct >= 80 or pressure > 1 or swap_gb >= 1:
+        red = ram_pct >= 90 or pressure >= 4 or swap_gb >= 4
+        alarms.append((red, f'RAM {gb(used)}/{gb(total)} GB' + (f', swap {swap_gb:.1f} GB' if swap_gb >= 1 else '')
+                       + ': close a window'))
+    load = os.getloadavg()[0] * 100 / ncpu
+    # Load a bit over the core count is normal with a full team; only a long queue slows everyone down.
+    if load >= 150:
+        alarms.append((load >= 200, f'CPU {load:.0f}%'))
+    # A dev server is a matching process whose parent does not match too (npm exec → node → next-server).
+    procs = [l.split(None, 2) for l in run(['ps', '-axo', 'pid=,ppid=,command=']).stdout.splitlines()]
+    dev = {p[0]: p[1] for p in procs if len(p) == 3 and DEV_PATTERN.search(p[2])}
+    servers = sum(1 for ppid in dev.values() if ppid not in dev)
+    if servers > DEV_MAX:
+        alarms.append((True, f'{servers} dev servers (limit {DEV_MAX}): stop {servers - DEV_MAX}'))
+    if not alarms:
+        return paint(DIM, '● Mac ok')
+    return '  '.join(paint(BOLD + ';' + (RED if red else YELLOW), '▲ ' + text) for red, text in alarms)
 
 
 def own_status(team):
