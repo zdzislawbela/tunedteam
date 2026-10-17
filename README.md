@@ -78,11 +78,14 @@ Tuned Team's reach: block them in the project (see your AGENTS.md).
 
 ## Use
 
-In a project folder:
+Anywhere:
 
 ```sh
 tunedteam
 ```
+
+The first question is the project folder: the current one (if it is a git repo), then
+projects you ran a team in, then repos in `~/repos`, or any folder you type.
 
 Every question is a list you pick from with the arrow keys and Enter. It lists your Claude accounts (`~/.claude`, every `~/.claude-*` folder and your own
 `CLAUDE_CONFIG_DIR`, e.g. work and private), asks which one to use (with one account it

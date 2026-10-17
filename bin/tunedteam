@@ -381,6 +381,39 @@ def api_key_warning(cwd, subscription):
         print(f"This account has no subscription: the agents run on the API key from {', '.join(found)} and it costs money.")
 
 
+def is_repo(path):
+    return run(['git', '-C', path, 'rev-parse', '--git-dir']).returncode == 0
+
+
+def choose_folder():
+    """First question: which project. Current folder (if a repo), recent teams, repos in ~/repos, or a typed path."""
+    here = os.getcwd()
+    recent = []
+    for f in glob.glob(os.path.join(HOME, '.tunedteam', 'teams', '*', 'config.json')):
+        cwd = read_json(f, {}).get('cwd')
+        if cwd and os.path.isdir(cwd):
+            recent.append((os.path.getmtime(f), cwd))
+    recent = [c for _, c in sorted(recent, reverse=True)]
+    found = sorted(os.path.dirname(g) for g in glob.glob(os.path.join(HOME, 'repos', '*', '.git'))
+                   + glob.glob(os.path.join(HOME, 'repos', '*', '*', '.git')))
+    found = [d for d in found if '.noindex' not in d and not re.search(r'-check-\d+$', d)]
+    paths = []
+    for d in ([here] if is_repo(here) else []) + recent + found:
+        d = repo_root(d)
+        if d not in paths:
+            paths.append(d)
+    paths = paths[:20]
+    other = '__other__'
+    pick = select('Project folder:', [(d, d.replace(HOME, '~')) for d in paths] + [(other, 'Other folder…')])
+    if pick == other:
+        typed = os.path.expanduser(input('Folder: ').strip())
+        if not os.path.isdir(typed):
+            sys.exit(f'No such folder: {typed}')
+        pick = typed
+    os.chdir(pick)
+    return pick
+
+
 def trusted(path):
     """Claude Code asked once whether to trust this folder (or a parent) and got a yes."""
     cfg = os.path.join(CLAUDE_DIR, '.claude.json') if os.environ.get('CLAUDE_CONFIG_DIR') else os.path.join(HOME, '.claude.json')
@@ -395,16 +428,16 @@ def trusted(path):
 
 
 def start():
+    print(f'Tuned Team {version()}. Arrows to choose, Enter to confirm.')
+    notice = update_notice()
+    if notice:
+        print(notice)
+    choose_folder()
     team = team_name(os.getcwd())
     if tmux('has-session', '-t', f'={team}').returncode == 0:
         print(f'Team "{team}" is already running; attaching.')
         return attach(team)
     last = config(team)
-    print(f'Tuned Team {version()} for {team}. Arrows to choose, Enter to confirm.')
-    notice = update_notice()
-    if notice:
-        print(notice)
-    print()
     account, subscription = choose_account(last)
     api_key_warning(os.getcwd(), subscription)
     if not trusted(os.getcwd()):
