@@ -477,9 +477,18 @@ def attach(team):
     if os.environ.get('TMUX'):
         os.execvp(TMUX[0], TMUX + ['switch-client', '-t', f'={team}'])
     if os.environ.get('TERM_PROGRAM') == 'iTerm.app':
-        # iTerm2's tmux integration: every agent becomes a native iTerm2 tab (tab bar can sit on the left).
-        os.execvp(TMUX[0], TMUX + ['-CC', 'attach-session', '-t', f'={team}'])
+        if iterm_tmux_tabs():
+            # iTerm2's tmux integration: every agent becomes a native iTerm2 tab (tab bar can sit on the left).
+            os.execvp(TMUX[0], TMUX + ['-CC', 'attach-session', '-t', f'={team}'])
+        print('Tip: iTerm2 → Settings → General → tmux → When attaching, restore windows as: '
+              'Tabs in the attaching window, and every agent becomes a native iTerm2 tab.')
     os.execvp(TMUX[0], TMUX + ['attach-session', '-t', f'={team}'])
+
+
+def iterm_tmux_tabs():
+    """True when iTerm2 opens tmux windows as tabs. Unset (0, its default) means one iTerm2 window per agent."""
+    value = run(['defaults', 'read', 'com.googlecode.iterm2', 'OpenTmuxWindowsIn']).stdout.strip()
+    return value not in ('', '0')
 
 
 # ---------- agents' commands ----------
