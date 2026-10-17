@@ -75,6 +75,34 @@ def version():
     return v
 
 
+def update_notice():
+    """Once a day: the newest vX.Y.Z tag on GitHub; a line saying how to update when it is newer."""
+    import urllib.request
+    path = os.path.join(HOME, '.tunedteam', 'update-check.json')
+    seen = read_json(path, {})
+    if time.time() - seen.get('at', 0) > 86400:
+        try:
+            with urllib.request.urlopen('https://api.github.com/repos/zdzislawbela/tunedteam/tags?per_page=100',
+                                        timeout=2) as r:
+                tags = [t['name'][1:] for t in json.load(r) if re.fullmatch(r'v\d+\.\d+\.\d+', t['name'])]
+            seen = {'at': time.time(), 'latest': max(tags, key=lambda t: tuple(map(int, t.split('.'))), default='')}
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            write_json(path, seen)
+        except Exception:
+            return ''  # offline or rate-limited: say nothing
+    latest = seen.get('latest', '')
+    try:
+        mine = open(os.path.join(ROOT, 'VERSION')).read().strip()
+        newer = tuple(map(int, latest.split('.'))) > tuple(map(int, mine.split('.')))
+    except (OSError, ValueError):
+        return ''
+    if not newer:
+        return ''
+    how = ('brew upgrade tunedteam' if '/Cellar/' in ROOT
+           else f'git -C {shlex.quote(ROOT)} pull --ff-only && {shlex.quote(ROOT)}/install.sh')
+    return f'Update available: {mine} -> {latest}. Run: {how}'
+
+
 def voice(text):
     """A Polish voice for Polish text (its letters give it away), the system voice otherwise."""
     return ['-v', 'Zosia'] if POLISH.search(text) else []
@@ -351,7 +379,11 @@ def start():
         print(f'Team "{team}" is already running; attaching.')
         return attach(team)
     last = config(team)
-    print(f'Tuned Team {version()} for {team}. Enter keeps the value in [brackets].\n')
+    print(f'Tuned Team {version()} for {team}. Enter keeps the value in [brackets].')
+    notice = update_notice()
+    if notice:
+        print(notice)
+    print()
     account, subscription = choose_account(last)
     api_key_warning(os.getcwd(), subscription)
     print()
@@ -659,6 +691,9 @@ def main():
         start()
     elif cmd in ('--version', '-v', 'version'):
         print(f'tunedteam {version()}')
+        notice = update_notice()
+        if notice:
+            print(notice)
     elif cmd == 'status':
         status()
     elif cmd == 'report':
