@@ -127,7 +127,10 @@ teams. The rest of this page is how each of those works.
 ## Small things
 
 - **Status line:** `repo (branch) | model | ctx %` from one git call, with the repo of the main
-  checkout even inside a worktree.
+  checkout even inside a worktree. The director's window also shows what to say to it and the
+  team counts, cached for 15 s (the status line runs after every message), plus your own command
+  from `~/.tunedteam/statusline`, run in the background every 5 minutes so a slow command never
+  holds up the window.
 - **Reading aloud:** the director ends replies with `<speak>…</speak>`; a Stop hook reads only
   that part with macOS `say`, in a Polish voice when the text has Polish letters.
 - **Update check:** once a day against the GitHub tags, silent when offline.

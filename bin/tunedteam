@@ -756,8 +756,8 @@ def short(s, n):
     return s if len(s) <= n else s[: n - 1] + '…'
 
 
-def status():
-    team = team_name()
+def team_rows(team):
+    """(index, window, branch, ctx, RAM, state, ETA, doing) for the director and every specialist."""
     reports = read_json(os.path.join(state_dir(team), 'reports.json'), {})
     rows = []
     for idx, name, pane in windows(team):
@@ -784,10 +784,20 @@ def status():
         rss = run(['ps', '-o', 'rss=', '-p', str(pid)]).stdout.strip() if pid else ''
         ram = f'{int(rss) // 1024} MB' if rss.isdigit() else '–'
         rows.append((idx, name, role, f'{ctx_pct(tokens, model)}%' if tokens else '–', ram, state, rep.get('eta', ''), doing))
+    return rows
+
+
+def team_summary(rows):
     specs = [r for r in rows if r[1].startswith('specialist-')]
     count = lambda pred: sum(1 for r in specs if pred(r[5]))
-    print(f"{team} · {time.strftime('%H:%M')} · specialists: {count(lambda s: s in ('working', 'task open'))} working · "
-          f"{count(lambda s: s.startswith('waiting'))} waiting for the owner · {count(lambda s: s == 'free')} free")
+    return (f"specialists: {count(lambda s: s in ('working', 'task open'))} working · "
+            f"{count(lambda s: s.startswith('waiting'))} waiting for the owner · {count(lambda s: s == 'free')} free")
+
+
+def status():
+    team = team_name()
+    rows = team_rows(team)
+    print(f"{team} · {time.strftime('%H:%M')} · {team_summary(rows)}")
     print()
     print('| # | Window | Branch | Ctx | RAM | State | ETA | Doing |')
     print('|---|---|---|---|---|---|---|---|')
@@ -816,7 +826,52 @@ def statusline():
         out += f" | ctx {ctx_pct(tokens, (d.get('model') or {}).get('id', ''))}%"
     elif cw.get('used_percentage') is not None:
         out += f" | ctx {round(cw['used_percentage'])}%"
+    if os.environ.get('TUNED_NAME') == 'director':
+        # The window the owner talks to: what to say, and how the team is doing, above the usual line.
+        team = team_name()
+        print(HINTS)
+        print(' | '.join(x for x in (cached(team, 'team', 15, lambda: team_summary(team_rows(team))),
+                                     own_status(team)) if x))
     print(out)
+
+
+HINTS = 'say "status", "add a specialist", "release", "close the team" · Ctrl+V pastes an image · !cmd runs here'
+
+
+def cached(team, key, seconds, compute):
+    """compute() at most once per `seconds`: the status line runs after every message."""
+    path = os.path.join(state_dir(team), f'statusline-{key}.json')
+    c = read_json(path, {})
+    if time.time() - c.get('at', 0) > seconds:
+        c = {'at': time.time(), 'text': compute()}
+        write_json(path, c)
+    return c.get('text', '')
+
+
+def own_status(team):
+    """The first line of the owner's own command (~/.tunedteam/statusline, e.g. deploys on Vercel), run in the
+    project folder in the background every 5 minutes, so a slow command never holds up the window."""
+    try:
+        command = open(os.path.join(HOME, '.tunedteam', 'statusline')).read().strip()
+    except OSError:
+        return ''
+    if not command:
+        return ''
+    out = os.path.join(state_dir(team), 'statusline-own.txt')
+    stamp = out + '.at'
+    try:
+        stale = time.time() - os.path.getmtime(stamp) > 300
+    except OSError:
+        stale = True
+    if stale:
+        open(stamp, 'w').close()  # before the run starts, so the next refresh does not start another one
+        subprocess.Popen(['sh', '-c', f'({command}) > {shlex.quote(out)}.tmp 2>/dev/null; mv {shlex.quote(out)}.tmp {shlex.quote(out)}'],
+                         cwd=config(team).get('cwd') or None, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    try:
+        return short(open(out).readline(), 100)
+    except OSError:
+        return ''
 
 
 def speak():

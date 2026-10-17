@@ -116,6 +116,10 @@ work from the next start; "leave it" is remembered and not asked again. Other te
 the tmux tab bar at the bottom.
 
 Every window shows one plain status line: `repo (branch) | model | ctx %`.
+The director's window adds two lines above it: what you can say to it ("status", "add a
+specialist", "release", "close the team") and how the team is doing (`specialists: 3 working ·
+1 waiting for the owner · 4 free`). Put a command in `~/.tunedteam/statusline` to show its first
+line there too, e.g. deploys on Vercel: it runs in the project folder, in the background, every 5 minutes.
 
 ## Commands the agents use
 
