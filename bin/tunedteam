@@ -15,7 +15,7 @@ tasks to the specialists, who do the work. The other commands are for the agents
   tunedteam schedule [add NAME HH:MM CMD | run|log|off|on|rm NAME]  commands run every day by launchd
   tunedteam report start|eta|done ...  a specialist writes its state into the table
   tunedteam worktree [--repo PATH] BRANCH [BASE]  new branch + worktree next to the repo, hidden from Spotlight
-  tunedteam owner-run < commands       save commands for the owner; prints one string to copy (~/.tunedteam/run/N)
+  tunedteam owner-run < commands       save commands for the owner; prints one string to copy (<project>/.run/N)
   tunedteam check [--timeout S] CMD..  run the full check once one of the 2 machine slots is free
   tunedteam done                       task merged, worktree and branch gone: restart this window fresh
   tunedteam add                        open one more specialist
@@ -913,12 +913,24 @@ def check(args):
 
 def owner_run():
     """Commands for the owner, from stdin, saved as a script that runs in the current folder. Prints one string
-    without spaces (~/.tunedteam/run/N): a double click selects all of it, so the owner copies it in one go."""
+    without spaces (~/repos/myapp/.run/N): a double click selects all of it, so the owner copies it in one go."""
     body = sys.stdin.read().strip()
     if not body:
         sys.exit('Usage: tunedteam owner-run <<\'EOF\'\n<commands>\nEOF')
-    d = os.path.join(HOME, '.tunedteam', 'run')
-    os.makedirs(d, exist_ok=True)
+    # In the project's main checkout (also from a worktree), so the path names the project; kept out of git.
+    root = repo_root(os.getcwd())
+    d = os.path.join(root, '.run')
+    try:
+        os.makedirs(d, exist_ok=True)
+        git_dir = run(['git', '-C', root, 'rev-parse', '--path-format=absolute', '--git-common-dir']).stdout.strip()
+        exclude = os.path.join(git_dir, 'info', 'exclude')
+        if git_dir and '/.run/' not in (open(exclude).read() if os.path.exists(exclude) else ''):
+            os.makedirs(os.path.dirname(exclude), exist_ok=True)
+            with open(exclude, 'a') as f:
+                f.write('\n/.run/\n')
+    except OSError:  # a folder the window can't write to (sandbox): the shared one
+        d = os.path.join(HOME, '.tunedteam', 'run')
+        os.makedirs(d, exist_ok=True)
     n = max([int(f) for f in os.listdir(d) if f.isdigit()] or [0]) + 1
     for f in os.listdir(d):  # keep the last 50
         if f.isdigit() and int(f) <= n - 50:
@@ -928,7 +940,8 @@ def owner_run():
         f.write(f'#!/bin/sh\n# saved by {os.environ.get("TUNED_NAME", "?")} at {time.strftime("%Y-%m-%d %H:%M")}\n'
                 f'set -ex\ncd {shlex.quote(os.getcwd())}\n{body}\n')
     os.chmod(path, 0o755)
-    print(path.replace(HOME, '~', 1))
+    home = os.path.realpath(HOME)
+    print('~' + path[len(home):] if path.startswith(home + '/') else path)
 
 
 def close_all(force):
