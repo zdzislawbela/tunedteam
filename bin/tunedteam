@@ -48,10 +48,12 @@ CONTROL = {
 }
 SPEAK = {
     'all': "Reading aloud is ON for everything: end each reply to the owner with <speak>1-2 plain spoken sentences: "
-           "what happened or what you need</speak>. Put only plain words inside it.",
+           "what happened or what you need</speak>. Put only plain words inside it; write numbers as digits "
+           "(88, not eighty-eight).",
     'questions': "Reading aloud is ON for questions only: when you ask the owner something or something is stuck "
                  "(a permission, a failing check), end the reply with <speak>1-2 plain spoken sentences</speak>. "
-                 "Keep status replies in plain text. Put only plain words inside the tag.",
+                 "Keep status replies in plain text. Put only plain words inside the tag; write numbers as digits "
+                 "(88, not eighty-eight).",
     'off': "Reading aloud is OFF: reply in plain text only.",
 }
 # Database and deploy tools through MCP. "ask" puts every tool that writes, migrates, deploys or deletes
