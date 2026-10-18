@@ -116,8 +116,8 @@ def update_notice():
 
 
 def voice(text):
-    """A Polish voice for Polish text (its letters give it away), the system voice otherwise."""
-    return ['-v', 'Zosia'] if POLISH.search(text) else []
+    """A Polish voice for Polish text (its letters give it away), an American one otherwise."""
+    return ['-v', 'Zosia' if POLISH.search(text) else 'Samantha']
 
 
 # ---------- small helpers ----------
@@ -1509,6 +1509,11 @@ def speak():
         text = WAIT.format(name=os.environ.get('TUNED_NAME', 'Claude').replace('-', ' '))
     else:
         text = '\n'.join(re.findall(r'<speak>(.*?)</speak>', d.get('last_assistant_message') or '', re.S))
+        # Several teams may talk on one Mac: say first which one this is.
+        if text.strip():
+            team = team_name().replace('-', ' ').capitalize()
+            hello = f'Elo, tu {team}.' if POLISH.search(text) else f'Hi, {team} here.'
+            text = f'{hello} {text}'
     if text.strip():
         subprocess.Popen(['say', *voice(text), text], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          start_new_session=True)
