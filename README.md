@@ -7,6 +7,10 @@ Claude Code sessions in tmux, one tab each:
   the specialists and watches them.
 - **specialists**: do the work (code, design, copy, research), each on its own branch.
 
+![A director, 8 specialists and lazygit working on one request](docs/demo.gif)
+
+A scripted demo on a made-up project: in real use every agent is a tab of its own.
+
 Two levels on purpose: following Anthropic's "Building effective agents" (start simple,
 add a layer only when it measurably helps), and an earlier measurement where a middle
 layer of managers cost 2-3x the tokens per commit for about 14% more commits.
