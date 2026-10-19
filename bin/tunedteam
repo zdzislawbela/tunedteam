@@ -844,7 +844,7 @@ def done():
 
 def worktree(args):
     """New branch + worktree in <repo>-worktrees.noindex/ next to the repo (Spotlight skips .noindex folders).
-    node_modules is cloned (APFS clone: seconds, no extra disk) and .env.local copied, if the repo has them."""
+    node_modules is cloned (APFS clone: seconds, no extra disk) and .env.local linked, if the repo has them."""
     repo = os.getcwd()
     if args[:1] == ['--repo'] and len(args) > 1:
         repo, args = os.path.expanduser(args[1]), args[2:]
@@ -863,8 +863,15 @@ def worktree(args):
         sys.exit(r.stderr.strip())
     if os.path.isdir(os.path.join(top, 'node_modules')):
         run(['cp', '-cR', os.path.join(top, 'node_modules'), os.path.join(path, 'node_modules')])
-    if os.path.exists(os.path.join(top, '.env.local')):
-        run(['cp', os.path.join(top, '.env.local'), os.path.join(path, '.env.local')])
+    # .env.local as a symlink to the main checkout's: a sandboxed window may not read .env* (cp failed there and
+    # os.path.exists said no), but it may list the folder and make a link; the keys stay in one place.
+    if '.env.local' in os.listdir(top):
+        try:
+            os.symlink(os.path.join(top, '.env.local'), os.path.join(path, '.env.local'))
+        except OSError as e:
+            print(f'Warning: no .env.local in the worktree ({e.strerror}); dev servers and tests there run without keys.')
+        if not os.path.lexists(os.path.join(path, '.env.local')):
+            print(f'Warning: no .env.local in the worktree; link it: ln -s {shlex.quote(os.path.join(top, ".env.local"))} {shlex.quote(path)}/')
     if os.environ.get('TUNED_NAME'):
         rp = os.path.join(state_dir(team_name()), 'reports.json')
         reports = read_json(rp, {})
