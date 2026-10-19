@@ -664,6 +664,7 @@ def start():
     choose_folder()
     iterm_setup()
     claude_update_setup()
+    lazygit_setup()
     team = unique_team(os.getcwd())
     if tmux('has-session', '-t', f'={team}').returncode == 0:
         print(f'Team "{team}" is already running; attaching.')
@@ -701,8 +702,11 @@ def start():
         open_window(team, f'specialist-{k}', cfg)
         time.sleep(0.3)  # 100 claudes starting in the same second choke the machine
     lazygit = shutil.which('lazygit')
-    if lazygit:  # the repo in lazygit, a tab of its own
+    if lazygit:  # the repo in lazygit, a tab of its own; each connected repo too (lazygit·ams)
         tmux('new-window', '-d', '-t', f'={team}:', '-n', 'lazygit', '-c', cfg['cwd'], color_cmd(cfg, f'exec {shlex.quote(lazygit)}'))
+        for repo in [r for r in repos if os.path.isdir(r)]:
+            tmux('new-window', '-d', '-t', f'={team}:', '-n', f'lazygit·{os.path.basename(repo)}', '-c', repo,
+                 color_cmd(cfg, f'exec {shlex.quote(lazygit)}'))
     for name, command in own_tabs():
         # A plain shell with the command typed in, so the owner's aliases work and Ctrl-C leaves the shell.
         tmux('new-window', '-d', '-t', f'={team}:', '-n', name, '-c', cfg['cwd'], color_cmd(cfg, 'exec "$SHELL" -l'))
@@ -769,6 +773,10 @@ def iterm_setup():
     global ITERM_JUST_SET
     path = os.path.join(HOME, '.tunedteam', 'iterm.json')
     if os.environ.get('TERM_PROGRAM') != 'iTerm.app':
+        if not read_json(path, {}).get('tip'):  # once: the agents as tabs you click, without tmux keys
+            print('Tip: in iTerm2 every agent is a tab you click (brew install --cask iterm2, then run tunedteam there).')
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            write_json(path, {**read_json(path, {}), 'tip': True})
         return
     if iterm_tmux_tabs():
         limit = run(['defaults', 'read', 'com.googlecode.iterm2', 'TmuxDashboardLimit']).stdout.strip()
@@ -1105,6 +1113,18 @@ def claude_update_setup():
     write_json(path, {'asked': True})
     if pick == 'yes':
         schedule_add('claude-update', '07:00', f'brew upgrade --cask {casks[0]}')
+
+
+def lazygit_setup():
+    """Once: offer lazygit (the repo's git tab) when it is missing and Homebrew is there."""
+    path = os.path.join(HOME, '.tunedteam', 'lazygit.json')
+    if shutil.which('lazygit') or not shutil.which('brew') or read_json(path, {}).get('asked'):
+        return
+    pick = select('Install lazygit (a git tab for the repo, through Homebrew)?', [('yes', 'yes'), ('no', 'no')], 'yes')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    write_json(path, {'asked': True})
+    if pick == 'yes' and subprocess.call(['brew', 'install', 'lazygit']):
+        print('lazygit did not install; the team starts without its git tab.')
 
 
 def teams():
