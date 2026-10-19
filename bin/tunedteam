@@ -536,7 +536,7 @@ def is_repo(path):
 
 
 def find_repos(top, depth=6):
-    """Git repos under `top`, a few levels deep (e.g. ~/repos/work/dev-env/src/app), skipping dependency folders."""
+    """Git repos under `top`, a few levels deep (e.g. ~/repos/acme/shop/src/app), skipping dependency folders."""
     found = []
     top_depth = top.rstrip('/').count('/')
     for d, subdirs, files in os.walk(top):
