@@ -15,7 +15,7 @@ tasks to the specialists, who do the work. The other commands are for the agents
   tunedteam schedule [add NAME HH:MM CMD | run|log|off|on|rm NAME]  commands run every day by launchd
   tunedteam report start|eta|done ...  a specialist writes its state into the table
   tunedteam worktree [--repo PATH] BRANCH [BASE]  new branch + worktree next to the repo, hidden from Spotlight
-  tunedteam owner-run < commands       save commands for the owner; prints one string to copy (<project>/.run/N)
+  tunedteam owner-run [--claude] STEP.. < commands  add commands to the owner's script (<project>/.run/run); prints the RUN block
   tunedteam check [--timeout S] CMD..  run the full check once one of the 2 machine slots is free
   tunedteam done                       task merged, worktree and branch gone: restart this window fresh
   tunedteam add                        open one more specialist
@@ -926,12 +926,19 @@ def check(args):
         os.execvp(args[0], args)
 
 
-def owner_run():
-    """Commands for the owner, from stdin, saved as a script that runs in the current folder. Prints one string
-    without spaces (~/repos/myapp/.run/N): a double click selects all of it, so the owner copies it in one go."""
+RUN_HEAD = '#!/bin/sh\n# tunedteam owner-run: the commands waiting for the owner; the file removes itself after a clean run\nset -ex\n'
+
+
+def owner_run(args):
+    """Commands for the owner, from stdin, added to the one script per project (<project>/.run/run) that holds
+    every command not run yet; it removes itself after a clean run. Prints the RUN block to show the owner as is:
+    the steps of the whole script, where to run it and the path (no spaces: a double click selects all of it)."""
+    claude = '--claude' in args
+    steps = [s for s in args if s != '--claude']
     body = sys.stdin.read().strip()
-    if not body:
-        sys.exit('Usage: tunedteam owner-run <<\'EOF\'\n<commands>\nEOF')
+    if not body or not steps:
+        sys.exit('Usage: tunedteam owner-run [--claude] "step" ["step" ..] <<\'EOF\'\n<commands>\nEOF\n'
+                 '  --claude: the owner may run it with ! in the Claude window (no prompts, no password)')
     # In the project's main checkout (also from a worktree), so the path names the project; kept out of git.
     root = repo_root(os.getcwd())
     d = os.path.join(root, '.run')
@@ -946,17 +953,26 @@ def owner_run():
     except OSError:  # a folder the window can't write to (sandbox): the shared one
         d = os.path.join(HOME, '.tunedteam', 'run')
         os.makedirs(d, exist_ok=True)
-    n = max([int(f) for f in os.listdir(d) if f.isdigit()] or [0]) + 1
-    for f in os.listdir(d):  # keep the last 50
-        if f.isdigit() and int(f) <= n - 50:
-            os.remove(os.path.join(d, f))
-    path = os.path.join(d, str(n))
+    path = os.path.join(d, 'run')
+    foot = f'rm -f {shlex.quote(path)}\n'  # absolute: the sections cd elsewhere
+    old = open(path).read() if os.path.exists(path) else ''
+    old = old.removeprefix(RUN_HEAD).removesuffix(foot)
+    section = (f'# --- {os.environ.get("TUNED_NAME", "?")} {time.strftime("%Y-%m-%d %H:%M")} '
+               f'[{"claude" if claude else "shell"}]\n' + ''.join(f'# - {s}\n' for s in steps)
+               + f'cd {shlex.quote(os.getcwd())}\n{body}\n')
+    script = old + section
     with open(path, 'w') as f:
-        f.write(f'#!/bin/sh\n# saved by {os.environ.get("TUNED_NAME", "?")} at {time.strftime("%Y-%m-%d %H:%M")}\n'
-                f'set -ex\ncd {shlex.quote(os.getcwd())}\n{body}\n')
+        f.write(RUN_HEAD + script + foot)
     os.chmod(path, 0o755)
     home = os.path.realpath(HOME)
-    print('~' + path[len(home):] if path.startswith(home + '/') else path)
+    shown = '~' + path[len(home):] if path.startswith(home + '/') else path
+    where = ('type ! in this Claude window, paste' if '[shell]' not in re.findall(r'^# --- .*(\[\w+\])$', script, re.M)
+             else 'shell tab, paste')
+    print('`RUN`')
+    print('\n'.join(re.findall(r'^# (- .*)$', script, re.M)))
+    print(f'where: {where} (double-click the path to copy it)\n')
+    print(f'```diff\n+ {shown}\n```')
+    print('`END`')
 
 
 def close_all(force):
@@ -1573,7 +1589,7 @@ def main():
     elif cmd == 'worktree':
         worktree(a[1:])
     elif cmd == 'owner-run':
-        owner_run()
+        owner_run(a[1:])
     elif cmd == 'check':
         check(a[1:])
     elif cmd == 'done':
