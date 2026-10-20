@@ -1,15 +1,31 @@
 # Tuned Team
 
-A multi-agent dev environment for Claude Code. One command opens a team of
-Claude Code sessions in tmux, one tab each:
+Run 2-10 tickets at once with a team of Claude Code sessions: a director you talk to and
+specialists that each take a ticket to a merged branch.
 
-- **director**: the only one you talk to. Turns what you want into tasks, hands them to
-  the specialists and watches them.
-- **specialists**: do the work (code, design, copy, research), each on its own branch.
+- **director**: the only one you talk to. Turns what you want into tickets, hands them to
+  the specialists, keeps order between them, handles handoffs and releases.
+- **specialists**: each takes one ticket (code, design, copy, research) on its own branch
+  and worktree, and is done when that branch is merged.
 
 ![A director, 8 specialists and lazygit working on one request, one iTerm2 tab each](docs/demo.gif)
 
 A scripted demo on a made-up project, in iTerm2 with the tunedteam layout: one tab per agent, listed on the left.
+
+## Subagents or Tuned Team?
+
+They do different jobs.
+
+- A **subagent** is a one-shot helper inside one Claude Code session: it gets one task,
+  reports back and ends. It shares the parent session's context budget, and you don't talk to it.
+- A **specialist** is a full, long-lived Claude Code session with its own context, on its own
+  branch, and its work ends merged. You can open its tab and talk to it.
+- The **director** keeps order: who takes which ticket, handoffs between specialists, checks
+  before merge, and the release.
+
+Tools that shape how one piece of work gets done, such as superpowers (brainstorm, plan,
+execute with subagents), work inside a specialist's ticket. Layers, not competitors: Tuned Team
+runs many tickets side by side; such a tool runs one ticket well.
 
 Two levels on purpose: following Anthropic's "Building effective agents" (start simple,
 add a layer only when it measurably helps), and an earlier measurement where a middle
@@ -235,6 +251,8 @@ work, so one person can run 16 of them without switching between windows.
   `roles/specialist.md`, passed with `--append-system-prompt-file`.
 - The director's handover before a fresh start goes to `~/.tunedteam/teams/<repo>/handover.md`.
 - State per team: `~/.tunedteam/teams/<repo>/` (answers, reports, generated prompts and settings).
+- Every agent is a Claude Code session in its own tmux window, so the team keeps running when you
+  close the terminal. tmux is an implementation detail: any terminal multiplexer would do.
 - tmux runs its own server (`tmux -L tuned`) with `tmux.conf` from this repo, so your own tmux is untouched.
 - Every window starts in auto mode. Speaking aloud uses macOS `say`, with a Polish voice
 for text with Polish letters.
