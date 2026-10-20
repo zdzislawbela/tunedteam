@@ -1381,28 +1381,58 @@ def log_event(d, name):
         f.write(json.dumps({'t': time.time(), 'tool': d.get('tool_name', ''),
                             'what': ' '.join(what.split())[:200]}, ensure_ascii=False) + '\n')
 
+def repo_info(path):
+    """[main checkout, name, package.json version, branch] of the repo at path (a worktree gives its own branch);
+    one git call."""
+    git = run(['git', '-C', path, '--no-optional-locks', 'rev-parse', '--path-format=absolute',
+               '--git-common-dir', '--abbrev-ref', 'HEAD']).stdout.split('\n')
+    repo = os.path.dirname(os.path.realpath(git[0])) if git[0] else os.path.realpath(path)
+    branch = git[1] if len(git) > 1 and git[1] != 'HEAD' else ''
+    version = read_json(os.path.join(repo, 'package.json'), {}).get('version', '')
+    return [repo, os.path.basename(repo), version, branch]
+
+
+def team_repos():
+    """repo_info of the team's main checkout and its connected repos (the ones `tunedteam worktree --repo` uses)."""
+    cfg = config(team_name())
+    return [repo_info(r) for r in [cfg.get('cwd', '')] + cfg.get('repos', []) if r and os.path.isdir(r)]
+
+
+REPOS_MAX = 60
+
+
+def repos_text(repos):
+    """'name version branch · name version branch'; too long for REPOS_MAX: versions go first, then the other
+    repos' branches."""
+    def text(version, other_branch):
+        return paint(DIM, ' · ').join(
+            paint(BOLD, n) + (' ' + paint(DIM, v) if v and version else '')
+            + (' ' + paint(MAGENTA, b) if b and (i == 0 or other_branch) else '')
+            for i, (_, n, v, b) in enumerate(repos))
+    for version, other_branch in ((True, True), (False, True), (False, False)):
+        out = text(version, other_branch)
+        if len(ANSI.sub('', out)) <= REPOS_MAX:
+            return out
+    return out
+
+
 def statusline():
     d = json.loads(sys.stdin.read() or '{}')
     cwd = (d.get('workspace') or {}).get('current_dir') or d.get('cwd') or os.getcwd()
     model = (d.get('model') or {}).get('display_name', '')
-    # One git call for both the repo (main checkout, also from a worktree) and the branch.
-    git = run(['git', '-C', cwd, '--no-optional-locks', 'rev-parse', '--path-format=absolute',
-               '--git-common-dir', '--abbrev-ref', 'HEAD']).stdout.split('\n')
-    repo = os.path.dirname(os.path.realpath(git[0])) if git[0] else cwd
-    branch = git[1] if len(git) > 1 and git[1] != 'HEAD' else ''
+    name = os.environ.get('TUNED_NAME')
+    repos = [repo_info(cwd)]
+    if name:  # in a team: also the team's other repos (main checkout and connected repos), cwd's repo first
+        repos += [r for r in cached(team_name(), 'repos', 15, team_repos) if r[0] != repos[0][0]]
     cw = d.get('context_window') or {}
     u = cw.get('current_usage') or {}
     tokens = u.get('input_tokens', 0) + u.get('cache_read_input_tokens', 0) + u.get('cache_creation_input_tokens', 0)
     pct = ctx_pct(tokens, (d.get('model') or {}).get('id', '')) if tokens else (
         round(cw['used_percentage']) if cw.get('used_percentage') is not None else None)
-    name = os.environ.get('TUNED_NAME')
     # The context colour warns before the role's restart point (director ~20%, specialists ~30%).
     limit = restart_point(name)
     ctx = '' if pct is None else paint(GREEN if pct < limit - 5 else YELLOW if pct < limit else RED, f'ctx {pct}%')
-    project = read_json(os.path.join(repo, 'package.json'), {}).get('version', '')
-    out = SEP.join(x for x in (paint(BOLD, os.path.basename(repo)) + (' ' + paint(DIM, project) if project else '')
-                               + (' ' + paint(MAGENTA, branch) if branch else ''),
-                               paint(DIM, model) if model else '', ctx) if x)
+    out = SEP.join(x for x in (repos_text(repos), paint(DIM, model) if model else '', ctx) if x)
     if name:  # in a team: which tunedteam runs it, in every window
         out += SEP + paint(DIM, cached(team_name(), 'version', 60, version_line))
     if name == 'director':
