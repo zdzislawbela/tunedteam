@@ -16,7 +16,8 @@ tasks to the specialists, who do the work. The other commands are for the agents
   tunedteam report start|eta|done ...  a specialist writes its state into the table
   tunedteam worktree [--repo PATH] BRANCH [BASE]  new branch + worktree next to the repo, hidden from Spotlight
   tunedteam owner-run [--claude] STEP.. < commands  add commands to the owner's script (<project>/.run/run); prints the RUN block
-  tunedteam check [--timeout S] CMD..  run the full check once one of the 2 machine slots is free
+  tunedteam check [--timeout S] [--force] CMD..  run the full check once one of the 2 machine slots is free;
+                                       skipped when CMD already passed on the same clean tree (--force runs it)
   tunedteam done                       task merged, worktree and branch gone: restart this window fresh
   tunedteam add                        open one more specialist
   tunedteam restart NAME               restart a window with a fresh context
@@ -43,7 +44,8 @@ CONTROL = {
              "The owner pushes by hand: give them the exact command.",
     'team': "Control mode for this project: THE TEAM DECIDES. The director releases on its own, at most once an hour: "
             "it collects the commits merged since the last release and ships them in one release (every release is a "
-            "deploy, and each deploy fills the hosting's storage). The team decides each step itself. Permission prompts "
+            "deploy, and each deploy fills the hosting's storage); with no commits since the last release, it skips the "
+            "release. The team decides each step itself. Permission prompts "
             "and sandbox blocks still go to the owner.",
 }
 SPEAK = {
@@ -907,10 +909,32 @@ def report(args):
     print(f'report saved ({name}): {kind} {" ".join(rest)}'.strip())
 
 
+def tree_state():
+    """(git dir shared by every worktree, HEAD tree, HEAD commit) of the clean checkout here, or None when it has
+    changes, untracked files or no git."""
+    out = run(['git', 'rev-parse', '--path-format=absolute', '--git-common-dir', 'HEAD^{tree}', 'HEAD'])
+    if out.returncode or run(['git', 'status', '--porcelain']).stdout.strip():
+        return None
+    return tuple(out.stdout.split())
+
+
 def check(args):
-    timeout = 0
-    if args[:1] == ['--timeout']:
-        timeout, args = int(args[1]), args[2:]
+    """Wait for a free check slot, then run the command. A command that already passed on the same clean tree
+    (HEAD tree + command, in any worktree of the repo) is skipped; --force runs it anyway."""
+    timeout, force = 0, False
+    while args[:1] in (['--timeout'], ['--force']):
+        if args[0] == '--force':
+            force, args = True, args[1:]
+        else:
+            timeout, args = int(args[1]), args[2:]
+    state = tree_state() if args else None
+    key = f'{state[1]} {shlex.join(args)}' if state else ''
+    passed_file = os.path.join(state[0], 'tunedteam-check-passed.json') if state else ''
+    if state and not force:
+        sha = read_json(passed_file, {}).get(key)
+        if sha:
+            print(f'tunedteam check: skipped: passed on {sha[:12]} (same tree, same command; --force runs it)')
+            return
     running = lambda: len(run(['pgrep', '-fx', CHECK_PATTERN]).stdout.split())
     waited = 0
     while running() >= CHECK_SLOTS:
@@ -922,8 +946,20 @@ def check(args):
             print(f'tunedteam check: {running()} checks running (limit {CHECK_SLOTS}), waiting...', file=sys.stderr)
         time.sleep(15)
         waited += 15
-    if args:
+    if not args:
+        return
+    if not state:
         os.execvp(args[0], args)
+    try:
+        code = subprocess.run(args).returncode
+    except KeyboardInterrupt:
+        code = 130
+    # Remember a pass only while the tree is still the one checked (a command that rewrites files proves nothing).
+    if code == 0 and tree_state() == state:
+        passed = read_json(passed_file, {})
+        passed[key] = state[2]
+        write_json(passed_file, dict(list(passed.items())[-200:]))
+    sys.exit(code)
 
 
 RUN_HEAD = '#!/bin/sh\n# tunedteam owner-run: the commands waiting for the owner; the file removes itself after a clean run\nset -ex\n'

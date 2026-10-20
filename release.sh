@@ -8,6 +8,13 @@ v=${1:?usage: sh release.sh 0.2.0}
 here=$(cd "$(dirname "$0")" && pwd)
 tap=${TUNED_TAP_DIR:-$HOME/repos/priv/homebrew-tap}
 
+# Nothing merged since the last release tag: no new release (finishing that same tag again is fine).
+last=$(git -C "$here" describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+if [ -n "$last" ] && [ "$last" != "v$v" ] && [ -z "$(git -C "$here" rev-list "$last..HEAD")" ]; then
+  echo "No commits since $last: nothing to release."
+  exit 0
+fi
+
 # The version the program reports (tunedteam --version, start screen).
 if [ "$(cat "$here/VERSION" 2>/dev/null)" != "$v" ]; then
   echo "$v" > "$here/VERSION"

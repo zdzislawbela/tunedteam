@@ -108,6 +108,9 @@ teams. The rest of this page is how each of those works.
 
 - **Full checks through `tunedteam check`:** at most 2 at a time (`TUNED_CHECK_MAX`). The
   rest wait; with `--timeout` they give up with exit code 3 and the branch stays unmerged.
+  A command that already passed on the same clean tree (HEAD tree + command, kept in the
+  repo's git folder, so every worktree sees it) is skipped: "skipped: passed on <sha>".
+  `--force` runs it anyway.
 - **At most 4 dev servers, browsers headless and closed after use.** These are rules in
   the role, not enforced in code.
 - **Worktrees next to the repo in `<repo>-worktrees.noindex/`.** Spotlight skips `.noindex`
