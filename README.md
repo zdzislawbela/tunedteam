@@ -182,6 +182,7 @@ Some are enforced by tunedteam, the rest are instructions the agents follow:
 | at most 4 dev servers, headless browsers | the role |
 | when the team decides, at most one release an hour | the role (a hard limit belongs in the project's own release script) |
 | messages only when the receiver must act, no "ok" or "thanks" | the role |
+| nobody holds a blocked task: after about a minute without your answer, or after "goodnight", the task is parked and the specialist takes other work; your questions wait for you in one list | the role, `tunedteam park` |
 | no specialist waits for you: questions go to the director, who decides; what only you can give comes in one message, with a fix that stops it coming back | the role, `tunedteam allow` |
 
 ## When there is nothing to do
@@ -227,6 +228,7 @@ director uses the same command when you ask for something recurring.
 | `tunedteam report start\|eta\|done` | a specialist writes its state into the table |
 | `tunedteam allow [RULE.. \| --env TEXT]` | permission rules (e.g. `'Bash(npm run dev*)'`) or a note for auto mode's classifier (`--env "QA is the team's staging"`) for every window of the team, so a block does not come back; each window picks it up when it starts fresh. Every window already tells auto mode that it is part of a team and which repos are yours. No arguments: list |
 | `tunedteam findings [add TEXT \| take ID \| close ID [NOTE]]` | the team's queue of problems found: specialists add what they find outside their task, the director gives open ones as fix tasks. No arguments: list. `tunedteam status` shows how many are open |
+| `tunedteam park "WAITS FOR"` / `unpark N` | a blocked task is put aside, not held: its branch and worktree stay, it goes on the parked list in `tunedteam tasks`, and the window takes other work; `unpark N` takes it back |
 | `tunedteam worktree [--repo PATH] BRANCH [BASE]` | new branch + worktree in `<repo>-worktrees.noindex/` next to the repo (`--repo`: a connected repo) (Spotlight skips `.noindex` folders), node_modules cloned, .env.local linked to the main checkout's |
 | `tunedteam owner-run < commands` | saves commands the owner has to run as a script and prints one string without spaces in the project folder (`~/repos/myapp/.run/7`, kept out of git): double-click it, copy, paste into the shell tab or after `!` in a window |
 | `tunedteam check [--timeout S] [--force] CMD` | runs the full check once one of the 2 machine slots is free (exit 3: no slot, nothing ran); skips it when the same command already passed on the same clean tree (`--force` runs it) |

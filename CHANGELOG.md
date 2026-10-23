@@ -2,6 +2,13 @@
 
 What each version of Tuned Team brings. Update with `brew upgrade tunedteam`.
 
+## 0.2.34 (2026-10-24)
+
+- Nobody holds a blocked task. When a task waits for you (about a minute without your answer, or after
+  "goodnight"), the specialist commits what it has, parks the task with `tunedteam park` and takes other
+  work. Parked tasks are listed in `tunedteam tasks`; `tunedteam unpark N` gives one back once you answer.
+- While you are away the director asks nothing more and keeps your questions for one short list.
+
 ## 0.2.33 (2026-10-24)
 
 - New start question: what the team does when it has nothing to do. "Test and fix": free specialists

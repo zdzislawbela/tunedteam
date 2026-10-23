@@ -16,6 +16,8 @@ tasks to the specialists, who do the work. The other commands are for the agents
   tunedteam report start|eta|done ...  a specialist writes its state into the table
   tunedteam allow [RULE.. | --env TEXT]  permission rules / auto-mode context for every window (no args: list)
   tunedteam findings [add TEXT | take ID | close ID [NOTE]]  the team's queue of problems found (no args: list)
+  tunedteam park "WAITS FOR"           put a blocked task aside (branch and worktree stay); listed in tunedteam tasks
+  tunedteam unpark N                   take parked task N back into this window
   tunedteam worktree [--repo PATH] BRANCH [BASE]  new branch + worktree next to the repo, hidden from Spotlight
   tunedteam owner-run [--claude] STEP.. < commands  add commands to the owner's script (<project>/.run/run); prints the RUN block
   tunedteam check [--timeout S] [--force] CMD..  run the full check once one of the 2 machine slots is free;
@@ -973,6 +975,47 @@ def findings(args):
             sys.exit('usage: tunedteam findings [add TEXT | take ID | close ID [NOTE]]')
 
 
+def park(args):
+    """Put a blocked task aside: its branch, worktree and what it waits for go to the team's parked list, and the
+    window is free for other work (`tunedteam done` no longer counts that worktree). Anyone picks it up later."""
+    name, team = me(), team_name()
+    rp = os.path.join(state_dir(team), 'reports.json')
+    reports = read_json(rp, {})
+    r = reports.get(name, {})
+    if not args:
+        sys.exit('Usage: tunedteam park "what it waits for, what is done, what is left"')
+    pp = os.path.join(state_dir(team), 'parked.json')
+    parked = read_json(pp, [])
+    parked.append({'what': r.get('what', ''), 'waits': ' '.join(args), 'branch': r.get('branch', ''),
+                   'worktree': r.get('worktree', ''), 'repo': r.get('repo', ''), 'by': name,
+                   'at': time.strftime('%Y-%m-%d %H:%M')})
+    write_json(pp, parked)
+    reports[name] = {'done': True, 'eta': '', 'what': 'parked: ' + r.get('what', '')}
+    write_json(rp, reports)
+    print(f"parked ({len(parked)} on the list); the branch and worktree stay. Take the next task, or run tunedteam done.")
+
+
+def unpark(k):
+    """Take parked task k back: it leaves the list and its branch and worktree become this window's again."""
+    name, team = me(), team_name()
+    pp = os.path.join(state_dir(team), 'parked.json')
+    parked = read_json(pp, [])
+    if not 1 <= k <= len(parked):
+        sys.exit(f'No parked task {k}; see tunedteam tasks.')
+    p = parked.pop(k - 1)
+    write_json(pp, parked)
+    rp = os.path.join(state_dir(team), 'reports.json')
+    reports = read_json(rp, {})
+    reports.setdefault(name, {}).update({x: p[x] for x in ('branch', 'worktree', 'repo') if p[x]},
+                                        what=p['what'], done=False)
+    write_json(rp, reports)
+    print(f"yours again: {p['what']}\nwaited for: {p['waits']}\nbranch {p['branch'] or '-'}, worktree {p['worktree'] or '-'}")
+
+
+def parked_list(team):
+    return read_json(os.path.join(state_dir(team), 'parked.json'), [])
+
+
 def open_findings(team):
     return sum(f['state'] == 'open' for f in read_json(os.path.join(state_dir(team), 'findings.json'), []))
 
@@ -1398,6 +1441,12 @@ def tasks():
         print(f"| {short(what, 60)} | {', '.join(g['agents'])} | {', '.join(sorted(g['branches']))} | "
               f"{max((e for e in g['etas'] if e), default='')} | {short('; '.join(states), 40)} |")
     print(f"\nFree: {', '.join(free) if free else 'nobody'}")
+    parked = parked_list(team)
+    if parked:
+        print(f'\nParked (waiting for the owner): {len(parked)}')
+        for k, p in enumerate(parked, 1):
+            print(f"{k:>3}. {short(p['what'] or '(no name)', 50)} · waits: {short(p['waits'], 60)} · "
+                  f"{p['branch'] or 'no branch'} {p['worktree']}")
 
 
 def status():
@@ -1744,6 +1793,10 @@ def main():
         allow(a[1:])
     elif cmd == 'findings':
         findings(a[1:])
+    elif cmd == 'park':
+        park(a[1:])
+    elif cmd == 'unpark' and len(a) > 1 and a[1].isdigit():
+        unpark(int(a[1]))
     elif cmd == 'worktree':
         worktree(a[1:])
     elif cmd == 'owner-run':
