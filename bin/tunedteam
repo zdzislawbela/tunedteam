@@ -15,6 +15,7 @@ tasks to the specialists, who do the work. The other commands are for the agents
   tunedteam schedule [add NAME HH:MM CMD | run|log|off|on|rm NAME]  commands run every day by launchd
   tunedteam report start|eta|done ...  a specialist writes its state into the table
   tunedteam allow [RULE.. | --env TEXT]  permission rules / auto-mode context for every window (no args: list)
+  tunedteam findings [add TEXT | take ID | close ID [NOTE]]  the team's queue of problems found (no args: list)
   tunedteam worktree [--repo PATH] BRANCH [BASE]  new branch + worktree next to the repo, hidden from Spotlight
   tunedteam owner-run [--claude] STEP.. < commands  add commands to the owner's script (<project>/.run/run); prints the RUN block
   tunedteam check [--timeout S] [--force] CMD..  run the full check once one of the 2 machine slots is free;
@@ -72,7 +73,20 @@ DB = {
     'full': "Database and deploy tools: full rights. Run writes, migrations and deploys yourself, saving each "
             "schema change as a migration file in the repo.",
 }
-LANGUAGE = ("Language: reply to the owner in the language the owner writes in. "
+# What the team does when the owner has given it nothing to do: wait, or test and fix. Finders and fixers shift
+# with the open findings: the more there are to fix, the fewer specialists look for new ones.
+IDLE = {
+    'wait': "When nothing is to do: wait for the owner's tasks. Turn open findings (`tunedteam findings`) into fix "
+            "tasks only when the owner asks.",
+    'test': "When nothing is to do: TEST AND FIX. Give free specialists a sweep each, one area per specialist (UI "
+            "screens, behavior and edge cases, API, performance, architecture): run the app and the tests, record "
+            "every problem with `tunedteam findings add`, fix nothing. Give open findings as fix tasks, one finding "
+            "per specialist, most severe first. Split the free specialists by the open findings in "
+            "`tunedteam findings`: under 3 open, the free ones sweep; 3 to 10 open, at most one sweeps and the "
+            "rest fix; over 10 open, nobody sweeps. A finding that needs the architecture changed goes to the "
+            "owner as one decision; decide the rest yourself.",
+}
+LANGUAGE = ("Language:reply to the owner in the language the owner writes in. "
             "Write to teammates in English.")
 WAIT = '{name} is waiting for you'
 POLISH = re.compile('[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]')
@@ -240,7 +254,7 @@ def prompt_file(team, name, cfg):
              CONTROL[cfg['control']],
              DB[cfg.get('db', 'ask')]]
     if role == 'director':
-        parts.append(SPEAK[cfg['speak']])
+        parts += [IDLE[cfg.get('idle', 'wait')], SPEAK[cfg['speak']]]
     path = os.path.join(state_dir(team), 'prompts', f'{name}.md')
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w') as f:
@@ -704,9 +718,12 @@ def start():
         db = 'ask'
     speak = select('Read aloud:', [('off', 'off'), ('questions', 'only questions for you'), ('all', 'everything')],
                    last.get('speak', 'questions'))
+    idle = select('When there is nothing to do:', [('wait', 'wait for your tasks'),
+                                                   ('test', 'test everything, fix what they find')],
+                  last.get('idle', 'wait'))
     skin = choose_skin(team, last)
     cfg = dict(account=account, subscription=subscription, specialists=specialists, model=model, control=control, db=db, speak=speak,
-               cwd=os.getcwd(), repos=repos, skin=skin)
+               idle=idle, cwd=os.getcwd(), repos=repos, skin=skin)
     write_json(os.path.join(state_dir(team), 'config.json'), cfg)
     write_json(os.path.join(state_dir(team), 'reports.json'), {})
 
@@ -922,6 +939,42 @@ def allow(args):
     for f in glob.glob(os.path.join(state_dir(team), 'settings', '*.json')):
         settings_file(team, os.path.basename(f)[:-5], cfg)
     print(f'Saved for team {team}. Each window picks it up when it starts fresh (tunedteam done or restart).')
+
+
+def findings(args):
+    """The team's queue of problems found: add, list, take, close. It outlives restarts, so the director splits
+    finders and fixers by the real count."""
+    import fcntl
+    path = os.path.join(state_dir(team_name()), 'findings.json')
+    with open(path + '.lock', 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        items = read_json(path, [])
+        cmd, rest = (args[0], args[1:]) if args else ('list', [])
+        me = os.environ.get('TUNED_NAME', 'owner')
+        if cmd == 'add' and rest:
+            items.append({'id': max((f['id'] for f in items), default=0) + 1, 'text': ' '.join(rest), 'by': me,
+                          'at': time.strftime('%Y-%m-%d %H:%M'), 'state': 'open'})
+            write_json(path, items)
+            print(f"finding {items[-1]['id']} added; open: {sum(f['state'] == 'open' for f in items)}")
+        elif cmd in ('take', 'close') and rest and rest[0].isdigit():
+            f = next((f for f in items if f['id'] == int(rest[0])), None)
+            if not f:
+                sys.exit(f'No finding {rest[0]}.')
+            f.update({'state': 'taken', 'who': me} if cmd == 'take' else {'state': 'closed', 'note': ' '.join(rest[1:])})
+            write_json(path, items)
+            print(f"finding {f['id']}: {f['state']}")
+        elif cmd == 'list':
+            live = [f for f in items if f['state'] != 'closed']
+            print(f"open: {sum(f['state'] == 'open' for f in live)} · taken: {sum(f['state'] == 'taken' for f in live)}"
+                  f" · closed: {len(items) - len(live)}")
+            for f in live:
+                print(f"{f['id']:>4}  {f['state']:<5}  {f.get('who') or f['by']:<14}  {f['text']}")
+        else:
+            sys.exit('usage: tunedteam findings [add TEXT | take ID | close ID [NOTE]]')
+
+
+def open_findings(team):
+    return sum(f['state'] == 'open' for f in read_json(os.path.join(state_dir(team), 'findings.json'), []))
 
 
 def report(args):
@@ -1350,7 +1403,8 @@ def tasks():
 def status():
     team = team_name()
     rows = team_rows(team)
-    print(f"{team} · {time.strftime('%H:%M')} · {team_summary(rows)}")
+    found = open_findings(team)
+    print(f"{team} · {time.strftime('%H:%M')} · {team_summary(rows)}" + (f' · {found} open findings' if found else ''))
     print()
     print('| # | Window | Branch | Ctx | RAM | State | ETA | Doing |')
     print('|---|---|---|---|---|---|---|---|')
@@ -1688,6 +1742,8 @@ def main():
         report(a[1:])
     elif cmd == 'allow':
         allow(a[1:])
+    elif cmd == 'findings':
+        findings(a[1:])
     elif cmd == 'worktree':
         worktree(a[1:])
     elif cmd == 'owner-run':

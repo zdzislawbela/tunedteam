@@ -134,7 +134,8 @@ Every question is a list you pick from with the arrow keys and Enter. It lists y
 `CLAUDE_CONFIG_DIR`, e.g. work and private), asks which one to use (with one account it
 skips the question) and logs it in first if needed, so no window opens on a
 logged-out account. Then it asks for the number of specialists, the model, who decides on push
-and release, and whether to read notifications or only questions aloud. The director
+and release, whether to read notifications or only questions aloud, and what the team does
+when it has nothing to do (see below). The director
 answers in the language you write in; agents write to each other in English. Then the tabs open and you talk to the director (tab 0). The last tab, `shell · last resort`,
 is a plain terminal for you in the project folder, for when you have to type something yourself.
 With [lazygit](https://github.com/jesseduffield/lazygit) installed, the tab before it shows the repo in lazygit.
@@ -183,6 +184,15 @@ Some are enforced by tunedteam, the rest are instructions the agents follow:
 | messages only when the receiver must act, no "ok" or "thanks" | the role |
 | no specialist waits for you: questions go to the director, who decides; what only you can give comes in one message, with a fix that stops it coming back | the role, `tunedteam allow` |
 
+## When there is nothing to do
+
+The last question at start: wait for your tasks (the default), or **test and fix**. In test and fix, the
+director gives free specialists a sweep each (UI screens, behavior and edge cases, API, performance,
+architecture). A sweep fixes nothing: every problem goes to `tunedteam findings`. Open findings go out as
+fix tasks, most severe first, and the split follows the queue: under 3 open, the free specialists sweep;
+3 to 10, at most one sweeps; over 10, everybody fixes. A finding that needs the architecture changed comes
+to you as one decision. Sweeps use your plan while you are away: pick it when you want that.
+
 ## Releases
 
 Who pushes and releases is the third question at start: you (the default) or the team. When the
@@ -216,6 +226,7 @@ director uses the same command when you ask for something recurring.
 | `tunedteam status` | team table: who works, who waits for the owner, context, RAM, ETA |
 | `tunedteam report start\|eta\|done` | a specialist writes its state into the table |
 | `tunedteam allow [RULE.. \| --env TEXT]` | permission rules (e.g. `'Bash(npm run dev*)'`) or a note for auto mode's classifier (`--env "QA is the team's staging"`) for every window of the team, so a block does not come back; each window picks it up when it starts fresh. Every window already tells auto mode that it is part of a team and which repos are yours. No arguments: list |
+| `tunedteam findings [add TEXT \| take ID \| close ID [NOTE]]` | the team's queue of problems found: specialists add what they find outside their task, the director gives open ones as fix tasks. No arguments: list. `tunedteam status` shows how many are open |
 | `tunedteam worktree [--repo PATH] BRANCH [BASE]` | new branch + worktree in `<repo>-worktrees.noindex/` next to the repo (`--repo`: a connected repo) (Spotlight skips `.noindex` folders), node_modules cloned, .env.local linked to the main checkout's |
 | `tunedteam owner-run < commands` | saves commands the owner has to run as a script and prints one string without spaces in the project folder (`~/repos/myapp/.run/7`, kept out of git): double-click it, copy, paste into the shell tab or after `!` in a window |
 | `tunedteam check [--timeout S] [--force] CMD` | runs the full check once one of the 2 machine slots is free (exit 3: no slot, nothing ran); skips it when the same command already passed on the same clean tree (`--force` runs it) |

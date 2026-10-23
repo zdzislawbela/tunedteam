@@ -2,6 +2,16 @@
 
 What each version of Tuned Team brings. Update with `brew upgrade tunedteam`.
 
+## 0.2.33 (2026-10-24)
+
+- New start question: what the team does when it has nothing to do. "Test and fix": free specialists
+  sweep one area each (UI, behavior, API, performance, architecture) and only record problems; open
+  findings go out as fix tasks. The split follows the queue: under 3 open, the free ones sweep; 3 to 10,
+  at most one sweeps; over 10, everybody fixes. An architecture change comes to you as one decision.
+- New `tunedteam findings`: the team's queue of problems found (add, take, close, list). It outlives
+  restarts; `tunedteam status` shows how many are open. Specialists record problems outside their task
+  there instead of fixing them on the side.
+
 ## 0.2.32 (2026-10-23)
 
 - No specialist waits for you. Specialists send questions to the director, who decides on its own,
