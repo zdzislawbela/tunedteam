@@ -260,6 +260,28 @@ work, so one person can run 16 of them without switching between windows.
 - Every window starts in auto mode. Speaking aloud uses macOS `say`, with a Polish voice
 for text with Polish letters.
 
+## What it costs
+
+Tuned Team saves your time, not tokens. Measured on our own teams (October 2026, not a benchmark),
+against one Claude Code session doing the same kind of tasks one after another:
+
+- about 2x the output tokens and 1.4x the input tokens per changed line of code;
+- in return, several tasks at once: 3 on average, 15 at the peak.
+
+The extra goes on coordination: every message wakes its receiver over its whole context, and the
+director reads the reports. The rules keep it down: messages only when the receiver must act, no
+acknowledgements, and a check that already passed on the same tree is not run again.
+
+To use less of your plan: Sonnet for the specialists (asked at start), fewer specialists, and a
+plain session for a single small task.
+
+## When not to use it
+
+- One small task: a plain Claude Code session does it for less.
+- Tasks that all change the same files: they wait for each other anyway.
+- A project with no tests or checks: specialists merge on green, and with nothing to check,
+  green says little.
+
 ## Limits
 
 One laptop runs at most 2 full checks and 4 dev servers at a time, whatever the team size.
