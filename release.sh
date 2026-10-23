@@ -15,6 +15,12 @@ if [ -n "$last" ] && [ "$last" != "v$v" ] && [ -z "$(git -C "$here" rev-list "$l
   exit 0
 fi
 
+# People read what a version brings in CHANGELOG.md: no entry, no release.
+if ! grep -q "^## $v\( \|$\)" "$here/CHANGELOG.md" 2>/dev/null; then
+  echo "CHANGELOG.md has no \"## $v\" entry: write what this version brings first." >&2
+  exit 1
+fi
+
 # The version the program reports (tunedteam --version, start screen).
 if [ "$(cat "$here/VERSION" 2>/dev/null)" != "$v" ]; then
   echo "$v" > "$here/VERSION"

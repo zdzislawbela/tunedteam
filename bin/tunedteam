@@ -14,6 +14,7 @@ tasks to the specialists, who do the work. The other commands are for the agents
   tunedteam log [NAME] [-n N] [-f]     the windows' last tool calls (all, or one); -f keeps printing new ones
   tunedteam schedule [add NAME HH:MM CMD | run|log|off|on|rm NAME]  commands run every day by launchd
   tunedteam report start|eta|done ...  a specialist writes its state into the table
+  tunedteam allow [RULE.. | --env TEXT]  permission rules / auto-mode context for every window (no args: list)
   tunedteam worktree [--repo PATH] BRANCH [BASE]  new branch + worktree next to the repo, hidden from Spotlight
   tunedteam owner-run [--claude] STEP.. < commands  add commands to the owner's script (<project>/.run/run); prints the RUN block
   tunedteam check [--timeout S] [--force] CMD..  run the full check once one of the 2 machine slots is free;
@@ -46,7 +47,8 @@ CONTROL = {
             "it collects the commits merged since the last release and ships them in one release (every release is a "
             "deploy, and each deploy fills the hosting's storage); with no commits since the last release, it skips the "
             "release. The team decides each step itself. Permission prompts "
-            "and sandbox blocks still go to the owner.",
+            "and sandbox blocks the team cannot get past go to the owner through the director, with a fix that "
+            "stops them coming back.",
 }
 SPEAK = {
     'all': "Reading aloud is ON for everything: end each reply to the owner with <speak>1-2 plain spoken sentences: "
@@ -255,6 +257,19 @@ def settings_file(team, name, cfg):
         s['statusLine']['refreshInterval'] = 15
     if cfg.get('db', 'ask') == 'ask':
         s['permissions'] = {'ask': DB_WRITE_TOOLS}
+    # Auto mode's classifier refuses what it can't place, and after 3 refusals in a row the window stops for the
+    # owner. Tell it what this setup is, plus what the owner allowed through `tunedteam allow`.
+    allowed = read_json(os.path.join(state_dir(team), 'allow.json'), {})
+    repos = [cfg['cwd']] + cfg.get('repos', [])
+    s['autoMode'] = {'environment': [
+        '$defaults',
+        'Tuned Team: this session is one of several Claude Code sessions of one owner, a director and specialists, '
+        'that message each other (SendMessage) and run the `tunedteam` command; both are routine.',
+        f"The owner's own repos for this work: {', '.join(repos)}, and their git worktrees in the "
+        '<repo>-worktrees.noindex folders next to them. Local edits, commits, branches and merges there are routine.',
+    ] + allowed.get('environment', [])}
+    if allowed.get('permissions'):
+        s.setdefault('permissions', {})['allow'] = allowed['permissions']
     # Tell the window when it passes its restart point (it can't see its own context %).
     s['hooks']['PostToolUse'] = [{'matcher': '*', 'hooks': [{'type': 'command', 'command': f'{me_cmd} ctx-check'}]}]
     if name == 'director' and cfg['speak'] != 'off':
@@ -888,6 +903,25 @@ def worktree(args):
         reports.setdefault(os.environ['TUNED_NAME'], {}).update(worktree=path, branch=branch, repo=top)
         write_json(rp, reports)
     print(f'Worktree for {branch} (from {base}): {path}')
+
+
+def allow(args):
+    """Permission rules and auto-mode context for every window of the team, so a block does not come back."""
+    team = team_name()
+    path = os.path.join(state_dir(team), 'allow.json')
+    allowed = read_json(path, {})
+    if args[:1] == ['--env'] and len(args) > 1:
+        allowed.setdefault('environment', []).append(' '.join(args[1:]))
+    elif args:
+        allowed['permissions'] = list(dict.fromkeys(allowed.get('permissions', []) + args))
+    else:
+        print(json.dumps(allowed, ensure_ascii=False, indent=1) if allowed else 'Nothing allowed yet.')
+        return
+    write_json(path, allowed)
+    cfg = config(team)
+    for f in glob.glob(os.path.join(state_dir(team), 'settings', '*.json')):
+        settings_file(team, os.path.basename(f)[:-5], cfg)
+    print(f'Saved for team {team}. Each window picks it up when it starts fresh (tunedteam done or restart).')
 
 
 def report(args):
@@ -1652,6 +1686,8 @@ def main():
         schedule(a[1:])
     elif cmd == 'report':
         report(a[1:])
+    elif cmd == 'allow':
+        allow(a[1:])
     elif cmd == 'worktree':
         worktree(a[1:])
     elif cmd == 'owner-run':

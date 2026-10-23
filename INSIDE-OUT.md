@@ -122,8 +122,11 @@ teams. The rest of this page is how each of those works.
 - **Push, release and deploy follow the control mode** chosen at start: the owner decides
   (default), or the team decides. When the team decides, the director releases at most once an
   hour, all merged commits together: every release is a deploy, and a release per merge filled
-  the hosting's deployment storage. Permission prompts always go to the owner, in the window
-  that asks.
+  the hosting's deployment storage. A permission prompt can only be answered in the window
+  that asks, so the team works to never raise one: every window tells auto mode's classifier
+  it is part of a team and which repos are the owner's (after 3 refusals in a row auto mode
+  stops for a human), and `tunedteam allow` adds the rules and notes the owner approved once.
+  Specialists never wait on the owner: questions go to the director, who decides.
 - **Database writes through MCP:** in "ask" mode every tool that writes, migrates, deploys
   or deletes is on Claude Code's ask list, which holds in auto mode too. Schema changes are
   saved as migration files in the repo either way.

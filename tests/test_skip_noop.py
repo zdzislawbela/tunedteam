@@ -104,7 +104,9 @@ class ReleaseTest(Base):
         shutil.copy(os.path.join(ROOT, 'release.sh'), self.repo)
         with open(os.path.join(self.repo, 'VERSION'), 'w') as f:
             f.write('0.1.0\n')
-        git(self.repo, 'add', 'release.sh', 'VERSION')
+        with open(os.path.join(self.repo, 'CHANGELOG.md'), 'w') as f:
+            f.write('# Changelog\n\n## 0.1.1 (2026-10-23)\n\n- two\n\n## 0.1.0\n\n- one\n')
+        git(self.repo, 'add', 'release.sh', 'VERSION', 'CHANGELOG.md')
         git(self.repo, 'commit', '-q', '-m', 'Release 0.1.0')
         git(self.repo, 'tag', 'v0.1.0')
 
@@ -124,6 +126,14 @@ class ReleaseTest(Base):
         out = self.release('0.1.1')  # stops at the push: the test repo has no remote
         self.assertNotIn('nothing to release', out.stdout)
         self.assertEqual(git(self.repo, 'log', '-1', '--format=%s'), 'Release 0.1.1')
+
+    def test_no_changelog_entry_no_release(self):
+        self.commit('a.txt', 'two')
+        out = self.release('0.1.2')
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn('no "## 0.1.2" entry', out.stderr)
+        self.assertEqual(git(self.repo, 'tag', '--list', 'v0.1.2'), '')
+        self.assertEqual(git(self.repo, 'log', '-1', '--format=%s'), 'a.txt two')
 
     def test_same_tag_can_be_finished_again(self):
         out = self.release('0.1.0')
