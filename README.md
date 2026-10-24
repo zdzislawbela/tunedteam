@@ -16,12 +16,22 @@ A scripted demo on a made-up project, in iTerm2 with the tunedteam layout: one t
 
 They do different jobs.
 
-- A **subagent** is a one-shot helper inside one Claude Code session: it gets one task,
-  reports back and ends. It shares the parent session's context budget, and you don't talk to it.
-- A **specialist** is a full, long-lived Claude Code session with its own context, on its own
-  branch, and its work ends merged. You can open its tab and talk to it.
-- The **director** keeps order: who takes which ticket, handoffs between specialists, checks
-  before merge, and the release.
+| | Subagent | Tuned Team specialist |
+|---|---|---|
+| Lives | one task, then ends | all day, across tasks |
+| Belongs to | one Claude Code session; ends with it | its own session (tmux); goes on when the director restarts or your terminal closes |
+| Context | fresh per task; only its report comes back | its own, kept between tasks, with a handover when it starts fresh |
+| You talk to it | no | through the director; you can open its tab |
+| Ends with | a report to the parent session | a merged branch |
+| Blocked | — | parks the task and takes other work |
+| Team state | — | `tunedteam status`, `tasks`, `findings`, parked tasks |
+
+This is how we built it and what we aim for, not a measured comparison or a guarantee.
+Subagents are likely cheaper for short tasks; we measured Tuned Team only against one
+plain session (see [What it costs](#what-it-costs)).
+
+The **director** keeps order: who takes which ticket, handoffs between specialists, checks
+before merge, and the release.
 
 Tools that shape how one piece of work gets done, such as superpowers (brainstorm, plan,
 execute with subagents), work inside a specialist's ticket. Layers, not competitors: Tuned Team
