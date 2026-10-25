@@ -48,6 +48,12 @@ teams. The rest of this page is how each of those works.
   the window's transcript after every tool call and, once the window is past its point, adds one
   line to its context: your context is at N%, restart now. Below the point it says nothing, so it
   costs no tokens; above it, it repeats only every 5 points.
+- **A brake on the plan.** Claude Code hands every status line the plan's use (`rate_limits`:
+  the 5-hour and the weekly window). The status line saves it to `plan.json`; the same
+  `ctx-check` hook tells each window once when the fuller window passes 80% (no sweeps, no new
+  specialists, cheap subagents only) or 90% (no new tasks, finish or park), and once when it is
+  back under 80%. Switching a running window to a cheaper model saves little: the cache is per
+  model, so the cheaper one reads the whole context again.
 - **Progress goes to a table, not to messages.** Every message wakes the receiver and costs
   it a full turn over its whole context. `tunedteam report start|eta|done` writes a line to
   `~/.tunedteam/teams/<team>/reports.json` instead, and nobody pays for reading it until they

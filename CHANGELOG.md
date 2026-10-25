@@ -2,6 +2,15 @@
 
 What each version of Tuned Team brings. Update with `brew upgrade tunedteam`.
 
+## 0.2.35 (2026-10-25)
+
+- A brake on your plan. Past 80% of the 5-hour or weekly limit the team gives no sweeps, adds no
+  specialists and uses only Haiku or Sonnet subagents; past 90% it starts no new tasks, running ones
+  finish or park, and the director tells you once with the reset time. Back under 80%, work goes on.
+  The director's Mac line shows it (`▲ plan week 83%: no sweeps`), `tunedteam status` shows the use.
+- Say "test and fix" or "wait" to the director to switch what the team does with nothing to do
+  (`tunedteam idle test|wait`). "test and fix" is on the director's line of things to say.
+
 ## 0.2.34 (2026-10-24)
 
 - Nobody holds a blocked task. When a task waits for you (about a minute without your answer, or after

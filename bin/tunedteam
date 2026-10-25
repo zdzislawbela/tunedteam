@@ -16,6 +16,7 @@ tasks to the specialists, who do the work. The other commands are for the agents
   tunedteam report start|eta|done ...  a specialist writes its state into the table
   tunedteam allow [RULE.. | --env TEXT]  permission rules / auto-mode context for every window (no args: list)
   tunedteam findings [add TEXT | take ID | close ID [NOTE]]  the team's queue of problems found (no args: list)
+  tunedteam idle [test | wait]         what the team does with nothing to do: test and fix, or wait (no args: show)
   tunedteam park "WAITS FOR"           put a blocked task aside (branch and worktree stay); listed in tunedteam tasks
   tunedteam unpark N                   take parked task N back into this window
   tunedteam worktree [--repo PATH] BRANCH [BASE]  new branch + worktree next to the repo, hidden from Spotlight
@@ -975,6 +976,19 @@ def findings(args):
             sys.exit('usage: tunedteam findings [add TEXT | take ID | close ID [NOTE]]')
 
 
+def idle(args):
+    """Switch what the team does when it has nothing to do; the next start and every fresh director prompt keep it."""
+    team = team_name()
+    path = os.path.join(state_dir(team), 'config.json')
+    cfg = read_json(path, {})
+    if args:
+        if args[0] not in IDLE:
+            sys.exit('usage: tunedteam idle [test | wait]')
+        cfg['idle'] = args[0]
+        write_json(path, cfg)
+    print(f"Idle mode: {cfg.get('idle', 'wait')}. From now on: {IDLE[cfg.get('idle', 'wait')]}")
+
+
 def park(args):
     """Put a blocked task aside: its branch, worktree and what it waits for go to the team's parked list, and the
     window is free for other work (`tunedteam done` no longer counts that worktree). Anyone picks it up later."""
@@ -1453,7 +1467,11 @@ def status():
     team = team_name()
     rows = team_rows(team)
     found = open_findings(team)
-    print(f"{team} · {time.strftime('%H:%M')} · {team_summary(rows)}" + (f' · {found} open findings' if found else ''))
+    plan = read_json(os.path.join(state_dir(team), 'plan.json'), {})
+    use = ' '.join(f"{k} {w['pct']}%" for k, w in plan.items())
+    lvl = brake_level(plan_use(team)[0])
+    print(f"{team} · {time.strftime('%H:%M')} · {team_summary(rows)}" + (f' · {found} open findings' if found else '')
+          + (f' · plan {use}' if use else '') + (f' · BRAKE {lvl}%' if lvl else ''))
     print()
     print('| # | Window | Branch | Ctx | RAM | State | ETA | Doing |')
     print('|---|---|---|---|---|---|---|---|')
@@ -1572,6 +1590,7 @@ def statusline():
     out = SEP.join(x for x in (repos_text(repos), paint(DIM, model) if model else '', ctx) if x)
     if name:  # in a team: which tunedteam runs it, in every window
         out += SEP + paint(DIM, cached(team_name(), 'version', 60, version_line))
+        save_plan(team_name(), d)
     if name == 'director':
         # The window the owner talks to, top to bottom: the usual line, the team and the owner's own line,
         # the Mac, what to say.
@@ -1579,7 +1598,7 @@ def statusline():
         print(out)
         print(SEP.join(x for x in (cached(team, 'team', 15, lambda: team_counts(team_rows(team))),
                                    own_status(team)) if x))
-        print(cached(team, 'health', 10, machine_health))
+        print('  '.join(x for x in (cached(team, 'health', 10, machine_health), plan_alarm(team)) if x))
         print(HINTS)
     elif name:
         # A specialist: who it is and its task on the left, the same right half as the director's.
@@ -1624,7 +1643,8 @@ def team_counts(rows):
 
 
 HINTS = (paint(DIM, 'say ') + paint(DIM, ' · ').join(paint(CYAN, x) for x in
-                                                     ('tasks', 'status', 'add a specialist', 'release', 'close the team'))
+                                                     ('tasks', 'status', 'add a specialist', 'test and fix', 'release',
+                                                      'close the team'))
          + SEP + paint(BOLD, 'Ctrl+V') + paint(DIM, ' image') + SEP + paint(BOLD, '!cmd') + paint(DIM, ' run here'))
 
 
@@ -1689,6 +1709,54 @@ def machine_health():
     return '  '.join(paint(BOLD + ';' + (RED if red else YELLOW), '▲ ' + text) for red, text in alarms)
 
 
+# The plan brake. Claude Code hands every status line the plan's use (rate_limits); the higher of the 5-hour and
+# the weekly window counts. Each level is said once per window, in the ctx-check hook.
+BRAKE = {
+    80: ("BRAKE 80%: give no sweeps and add no specialists; give only the owner's tasks and fixes already open. "
+         "Subagents only on Haiku or Sonnet, one at a time.",
+         "Subagents only on Haiku or Sonnet, one at a time."),
+    90: ("BRAKE 90%: give no new tasks. Running tasks finish or park (`tunedteam park`). Tell the owner once, "
+         "with the reset time, and wait.",
+         "Finish the current step, merge if green, otherwise park the task (`tunedteam park`); start nothing new."),
+}
+
+
+def save_plan(team, d):
+    """The status line's rate_limits to the team's plan.json, for the brake and `tunedteam status`."""
+    r = d.get('rate_limits') or {}
+    plan = {k: {'pct': round(w['used_percentage']), 'resets': w.get('resets_at')}
+            for k, w in (('5h', r.get('five_hour')), ('week', r.get('seven_day')))
+            if w and w.get('used_percentage') is not None}
+    path = os.path.join(state_dir(team), 'plan.json')
+    if plan and plan != read_json(path, {}):
+        write_json(path, plan)
+
+
+def plan_use(team):
+    """(pct, '5h' or 'week', resets_at) of the fuller window; a window past its reset counts as 0."""
+    best = (0, '', None)
+    for k, w in read_json(os.path.join(state_dir(team), 'plan.json'), {}).items():
+        pct = 0 if w.get('resets') and w['resets'] < time.time() else w.get('pct', 0)
+        if pct > best[0]:
+            best = (pct, k, w.get('resets'))
+    return best
+
+
+def brake_level(pct):
+    return max((lvl for lvl in BRAKE if pct >= lvl), default=0)
+
+
+def plan_alarm(team):
+    """The director's line about the plan: only when the brake is on."""
+    pct, which, resets = plan_use(team)
+    lvl = brake_level(pct)
+    if not lvl:
+        return ''
+    when = time.strftime(' until %a %H:%M', time.localtime(resets)) if resets else ''
+    return paint(BOLD + ';' + (RED if lvl >= 90 else YELLOW),
+                 f"▲ plan {which} {pct}%: {'no new tasks' if lvl >= 90 else 'no sweeps'}{when}")
+
+
 def own_status(team):
     """The first line of the owner's own command (~/.tunedteam/statusline, e.g. deploys on Vercel), run in the
     project folder in the background every 5 minutes, so a slow command never holds up the window."""
@@ -1730,23 +1798,49 @@ def ctx_check():
     if not name or not sid:
         return
     log_event(d, name)  # here, not in a hook of its own: one Python start per tool call, not two
+    say = [x for x in (plan_check(name, sid), ctx_warning(name, sid)) if x]
+    if say:
+        print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PostToolUse',
+                                                 'additionalContext': ' '.join(say)}}))
+
+
+def warned(kind, sid, value=None):
+    """The last value this window was told about (kind: ctx or plan); with value, remember it."""
+    mark = os.path.join(state_dir(team_name()), f'{kind}-warned', sid)
+    if value is not None:
+        os.makedirs(os.path.dirname(mark), exist_ok=True)
+        open(mark, 'w').write(str(value))
+        return value
+    try:
+        return int(open(mark).read())
+    except (OSError, ValueError):
+        return 0
+
+
+def ctx_warning(name, sid):
     _, _, tokens, model = transcript(sid)
     pct, limit = ctx_pct(tokens, model), restart_point(name)
-    mark = os.path.join(state_dir(team_name()), 'ctx-warned', sid)
-    try:
-        last = int(open(mark).read())
-    except (OSError, ValueError):
-        last = 0
-    if not tokens or pct < limit or pct < last + 5:
-        return
-    os.makedirs(os.path.dirname(mark), exist_ok=True)
-    open(mark, 'w').write(str(pct))
+    if not tokens or pct < limit or pct < warned('ctx', sid) + 5:
+        return ''
+    warned('ctx', sid, pct)
     todo = ('write your handover file, then run `tunedteam restart self`' if name == 'director' else
             'finish the current step, send the director your state (done, left, branch, worktree), '
             'then run `tunedteam restart self`')
-    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PostToolUse', 'additionalContext':
-          f'tunedteam: your context is at {pct}%, past your restart point ({limit}%). Now {todo}. '
-          'Do it yourself; it needs no yes from the owner.'}}))
+    return (f'tunedteam: your context is at {pct}%, past your restart point ({limit}%). Now {todo}. '
+            'Do it yourself; it needs no yes from the owner.')
+
+
+def plan_check(name, sid):
+    """Once per change of the brake level (80, 90, back under 80): what this window does now."""
+    pct, which, resets = plan_use(team_name())
+    lvl = brake_level(pct)
+    if lvl == warned('plan', sid):
+        return ''
+    warned('plan', sid, lvl)
+    if not lvl:
+        return 'tunedteam: the plan is back under 80%: the brake is off, work as usual.'
+    when = time.strftime(' (resets %a %H:%M)', time.localtime(resets)) if resets else ''
+    return f"tunedteam: the plan's {which} limit is at {pct}%{when}. {BRAKE[lvl][0 if name == 'director' else 1]}"
 
 
 def speak():
@@ -1793,6 +1887,8 @@ def main():
         allow(a[1:])
     elif cmd == 'findings':
         findings(a[1:])
+    elif cmd == 'idle':
+        idle(a[1:])
     elif cmd == 'park':
         park(a[1:])
     elif cmd == 'unpark' and len(a) > 1 and a[1].isdigit():

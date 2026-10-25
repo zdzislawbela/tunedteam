@@ -172,7 +172,7 @@ top line, then how the team is doing (`● 6 working  ○ 3 free`, plus `▲ 2 W
 anyone waits on you), redrawn every 15 s; below it a line about the Mac: a grey `● Mac ok`, or only what needs you,
 with what to do (`▲ 5 dev servers (limit 4): stop 1`, `▲ RAM 44/48 GB, swap 3.2 GB: close a
 window`, `▲ CPU 160%`), measured at most every 10 s; and at the bottom what you can say to it
-("tasks", "status", "add a specialist", "release", "close the team"). Put a command in `~/.tunedteam/statusline` to show its first
+("tasks", "status", "add a specialist", "test and fix", "release", "close the team"). Put a command in `~/.tunedteam/statusline` to show its first
 line there too, e.g. deploys on Vercel: it runs in the project folder, in the background, every
 5 minutes.
 
@@ -193,6 +193,7 @@ Some are enforced by tunedteam, the rest are instructions the agents follow:
 | when the team decides, at most one release an hour | the role (a hard limit belongs in the project's own release script) |
 | messages only when the receiver must act, no "ok" or "thanks" | the role |
 | nobody holds a blocked task: after about a minute without your answer, or after "goodnight", the task is parked and the specialist takes other work; your questions wait for you in one list | the role, `tunedteam park` |
+| a brake on your plan: past 80% of the 5-hour or weekly limit no sweeps and no new specialists; past 90% no new tasks | the status line reads the limit, a hook tells each window once per level |
 | no specialist waits for you: questions go to the director, who decides; what only you can give comes in one message, with a fix that stops it coming back | the role, `tunedteam allow` |
 
 ## When there is nothing to do
@@ -202,7 +203,9 @@ director gives free specialists a sweep each (UI screens, behavior and edge case
 architecture). A sweep fixes nothing: every problem goes to `tunedteam findings`. Open findings go out as
 fix tasks, most severe first, and the split follows the queue: under 3 open, the free specialists sweep;
 3 to 10, at most one sweeps; over 10, everybody fixes. A finding that needs the architecture changed comes
-to you as one decision. Sweeps use your plan while you are away: pick it when you want that.
+to you as one decision. Sweeps use your plan while you are away: pick it when you want that. Past 80% of
+your plan's 5-hour or weekly limit the sweeps stop until it resets. Say "test and fix" or "wait" to the
+director to switch while the team runs (`tunedteam idle test|wait`); the next start remembers it.
 
 ## Releases
 
@@ -238,6 +241,7 @@ director uses the same command when you ask for something recurring.
 | `tunedteam report start\|eta\|done` | a specialist writes its state into the table |
 | `tunedteam allow [RULE.. \| --env TEXT]` | permission rules (e.g. `'Bash(npm run dev*)'`) or a note for auto mode's classifier (`--env "QA is the team's staging"`) for every window of the team, so a block does not come back; each window picks it up when it starts fresh. Every window already tells auto mode that it is part of a team and which repos are yours. No arguments: list |
 | `tunedteam findings [add TEXT \| take ID \| close ID [NOTE]]` | the team's queue of problems found: specialists add what they find outside their task, the director gives open ones as fix tasks. No arguments: list. `tunedteam status` shows how many are open |
+| `tunedteam idle [test \| wait]` | what the team does with nothing to do: test and fix, or wait for you. No arguments: show the mode |
 | `tunedteam park "WAITS FOR"` / `unpark N` | a blocked task is put aside, not held: its branch and worktree stay, it goes on the parked list in `tunedteam tasks`, and the window takes other work; `unpark N` takes it back |
 | `tunedteam worktree [--repo PATH] BRANCH [BASE]` | new branch + worktree in `<repo>-worktrees.noindex/` next to the repo (`--repo`: a connected repo) (Spotlight skips `.noindex` folders), node_modules cloned, .env.local linked to the main checkout's |
 | `tunedteam owner-run < commands` | saves commands the owner has to run as a script and prints one string without spaces in the project folder (`~/repos/myapp/.run/7`, kept out of git): double-click it, copy, paste into the shell tab or after `!` in a window |
