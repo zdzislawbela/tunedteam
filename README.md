@@ -258,19 +258,18 @@ director uses the same command when you ask for something recurring.
 
 How Tuned Team differs from tools people use to run many coding agents. Mostly an
 opinion from reading the tools' pages and reviews (October 2026), not a benchmark.
-Only the Tuned Team and VS Code memory figures were measured, on a 48 GB M4 Pro.
 
-| Tool | What it is | Who splits the work | Each task isolated | 16 agents on one laptop | Notes |
-|---|---|---|---|---|---|
-| **Tuned Team** | terminal (tmux), one command | the agents: the director hands out and checks the work; you talk only to the director | git worktree per task | yes: a fresh session uses ~370 MB (measured), so 16 are roughly 6-10 GB; should fit a 16 GB MacBook Air, not tested there | roles, quality gate before merge, machine limits (2 checks, 4 dev servers), read-aloud |
-| Claude Squad | terminal (tmux) with a session switcher | you: you prompt each agent and review each diff | git worktree per session | likely yes, same tmux model | session manager, no coordination between agents; AGPL-3.0 |
-| Claude Code agent teams | built into Claude Code, experimental | a lead agent | worktree support | likely yes, panes need tmux or iTerm2 | off by default; more tokens than subagents |
-| Claude desktop app (nested sessions, projects; "Claude 2.0") | Anthropic's desktop app | a main session starts sub-sessions that report back to it; you can pin one session to ask what the others wait on | not described | not known; nested sessions need the computer awake | sub-sessions are chats you can open; cloud projects keep working with the laptop closed, on Anthropic's servers |
-| VS Code + Claude Code panels | Electron editor | you | your own scripts | **no** in our use: at 8-10 long sessions the window froze (one renderer process at 1.4 GB and 100% of one core, measured) | every panel is drawn by one window process |
-| Cursor 3 (Agents Window) | Electron editor (VS Code fork) | you | worktree per agent | up to 8 agents per window (vendor) | same Electron model as VS Code; paid plans |
-| OpenAI Codex app | desktop app | you | built-in worktrees | not known | another model and plan |
-| Conductor | Mac app | you | worktree per workspace | 5-10 sessions (reviews) | GUI around worktrees: chat, diff, checks, PR |
-| workmux, dmux | small terminal tools | you | worktree per task | likely yes | windows and worktrees only |
+| Tool | What it is | Who splits the work | Each task isolated | Notes |
+|---|---|---|---|---|
+| **Tuned Team** | terminal (tmux), one command | the agents: the director hands out and checks the work; you talk only to the director | git worktree per task | roles, quality gate before merge, machine limits (2 checks, 4 dev servers), read-aloud |
+| Claude Squad | terminal (tmux) with a session switcher | you: you prompt each agent and review each diff | git worktree per session | session manager, no coordination between agents; AGPL-3.0 |
+| Claude Code agent teams | built into Claude Code, experimental | a lead agent | worktree support | off by default; more tokens than subagents |
+| Claude desktop app (nested sessions, projects; "Claude 2.0") | Anthropic's desktop app | a main session starts sub-sessions that report back to it; you can pin one session to ask what the others wait on | not described | sub-sessions are chats you can open and need the computer awake; cloud projects keep working with the laptop closed, on Anthropic's servers |
+| VS Code + Claude Code panels | Electron editor | you | your own scripts | every panel is drawn by one window process |
+| Cursor 3 (Agents Window) | Electron editor (VS Code fork) | you | worktree per agent | same Electron model as VS Code; paid plans |
+| OpenAI Codex app | desktop app | you | built-in worktrees | another model and plan |
+| Conductor | Mac app | you | worktree per workspace | GUI around worktrees: chat, diff, checks, PR |
+| workmux, dmux | small terminal tools | you | worktree per task | windows and worktrees only |
 
 In short: the window-and-worktree layer is the same everywhere (tmux or an app around
 git worktrees). What Tuned Team adds is the coordination: agents hand out and check the
