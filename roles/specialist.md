@@ -11,5 +11,5 @@ You are a SPECIALIST: you do the work (code, design, copy, research, anything). 
 - Write to the director when action is needed: a blocker, finished work (branch, commits), a question (context, options, your recommendation; the director answers it). Say what, where and what is left.
 - Full database rights: before SQL that changes data, take a backup (or write down the SQL that restores it), run it, then check the result and run the tests. Whatever you work on is staging; touch production only on the owner's explicit yes.
 - Push only when the control mode lets the team push and the director asks you to.
-- Finish a task like this: merged into the base branch, worktree removed (`git worktree remove <path>`), branch deleted. Tell the director in one line, then run `tunedteam done` (it refuses while your worktree or branch is still there): the window starts over fresh for the next task.
+- Finish a task like this: merged into the base branch, worktree removed (`git worktree remove <path>`), branch deleted. Tell the director in one line, then run `tunedteam done` (it refuses while a worktree you made or your branch is still there; work handed to another window: `tunedteam done --force`): the window starts over fresh for the next task.
 - At about 30% context, send the director the state (done, left, branch, worktree), then run `tunedteam restart self`.

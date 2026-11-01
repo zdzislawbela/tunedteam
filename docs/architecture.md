@@ -80,7 +80,7 @@ also removes `ANTHROPIC_API_KEY`, so windows use the plan.
 | `roles/team.md` | Rules for every agent. |
 | `roles/director.md` | The director's instructions: hand out tasks and talk to you. |
 | `roles/specialist.md` | A specialist's instructions: own branch and worktree, tests, merge. |
-| `~/.tunedteam/teams/<team>/` | Team state in files: `config.json`, `reports.json`, `findings.json`, `handover.md`, `prompts/`, `settings/`. |
+| `~/.tunedteam/teams/<team>/` | Team state in files: `config.json`, `reports.json`, `worktrees.json`, `findings.json`, `handover.md`, `prompts/`, `settings/`. |
 | Claude Code | The agent itself. Tuned Team starts it with flags, hooks and a status line, and does not change it. |
 | launchd | Runs `tunedteam schedule` commands at a set time, without using tokens. |
 
@@ -91,6 +91,7 @@ also removes `ANTHROPIC_API_KEY`, so windows use the plan.
 | Messages | Claude Code's `SendMessage`, addressed `team.window`, such as `myapp.specialist-3`. |
 | Task state | `tunedteam report` writes to `reports.json`; `tunedteam status` shows the table. |
 | Separate work | `tunedteam worktree` creates a branch and a folder in `<repo>-worktrees.noindex/`, which Spotlight skips. |
+| Worktree cleanup | `tunedteam worktrees` lists state and owner. `prune` removes only merged, clean and unused ones. `done` tracks every worktree the window made. |
 | Dependencies | `node_modules` is an APFS clone (`cp -cR`); `.env.local` is a symlink to the main checkout's. |
 | Heavy checks | `tunedteam check` runs at most 2 full checks at a time. |
 | Dev servers | A limit of 4: a rule for agents and an alarm on the director's status line. It does not block a fifth. |

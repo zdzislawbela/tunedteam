@@ -20,10 +20,11 @@ tasks to the specialists, who do the work. The other commands are for the agents
   tunedteam park "WAITS FOR"           put a blocked task aside (branch and worktree stay); listed in tunedteam tasks
   tunedteam unpark N                   take parked task N back into this window
   tunedteam worktree [--repo PATH] BRANCH [BASE]  new branch + worktree next to the repo, hidden from Spotlight
+  tunedteam worktrees [prune]          the team's worktrees and their state; prune removes the merged, clean, unused ones
   tunedteam owner-run [--claude] STEP.. < commands  add commands to the owner's script (<project>/.run/run); prints the RUN block
   tunedteam check [--timeout S] [--force] CMD..  run the full check once one of the 2 machine slots is free;
                                        skipped when CMD already passed on the same clean tree (--force runs it)
-  tunedteam done                       task merged, worktree and branch gone: restart this window fresh
+  tunedteam done [--force]             task merged, worktree and branch gone: restart this window fresh (--force: work handed on)
   tunedteam add                        open one more specialist
   tunedteam restart NAME               restart a window with a fresh context
   tunedteam close-all [--force]        close every window (lists unmerged work first)
@@ -870,22 +871,110 @@ def restart(name):
     print(f'{name} restarts with a fresh context' + (f' in {delay} s.' if delay else '.'))
 
 
-def done():
+def worktree_owners(team):
+    """{worktree path: window that made it}. Apart from the reports, which keep one worktree per window and lose it
+    on a restart."""
+    return read_json(os.path.join(state_dir(team), 'worktrees.json'), {})
+
+
+def set_worktree_owner(team, path, name):
+    owners = worktree_owners(team)
+    if name:
+        owners[path] = name
+    else:
+        owners.pop(path, None)
+    write_json(os.path.join(state_dir(team), 'worktrees.json'), owners)
+
+
+def done(args=()):
     """Task merged, worktree and branch removed: the window starts over with a fresh context.
-    Refuses while the worktree or an unmerged branch from `tunedteam worktree` is still there."""
+    Refuses while the worktree or an unmerged branch from `tunedteam worktree` is still there, also an earlier one
+    of this window. --force: the work went to another window, so this one lets go of it."""
     name, team = me(), team_name()
     r = read_json(os.path.join(state_dir(team), 'reports.json'), {}).get(name, {})
-    left = []
-    if r.get('worktree') and os.path.isdir(r['worktree']):
-        left.append(f"worktree {r['worktree']} (remove it: git worktree remove {r['worktree']})")
-    if r.get('branch'):
-        top = r.get('repo') or repo_root(os.getcwd())
-        if run(['git', '-C', top, 'rev-parse', '--verify', '--quiet', f"refs/heads/{r['branch']}"]).returncode == 0:
-            left.append(f"branch {r['branch']} in {top} (merge it, then delete it: git -C {top} branch -d {r['branch']})")
-    if left:
-        sys.exit('Still open, the window keeps its context:\n' + '\n'.join(f'  - {x}' for x in left))
+    parked = {p.get('worktree') for p in read_json(os.path.join(state_dir(team), 'parked.json'), [])}
+    mine = [p for p, o in worktree_owners(team).items() if o == name and os.path.isdir(p) and p not in parked]
+    if '--force' in args:
+        for p in mine:
+            set_worktree_owner(team, p, None)
+    else:
+        left = []
+        for p in dict.fromkeys(([r['worktree']] if r.get('worktree') and os.path.isdir(r['worktree']) else []) + mine):
+            left.append(f"worktree {p} (remove it: git worktree remove {p})")
+        if r.get('branch'):
+            top = r.get('repo') or repo_root(os.getcwd())
+            if run(['git', '-C', top, 'rev-parse', '--verify', '--quiet', f"refs/heads/{r['branch']}"]).returncode == 0:
+                left.append(f"branch {r['branch']} in {top} (merge it, then delete it: git -C {top} branch -d {r['branch']})")
+        if left:
+            sys.exit('Still open, the window keeps its context:\n' + '\n'.join(f'  - {x}' for x in left)
+                     + '\nHanded on to another window? tunedteam done --force')
     report(['done'])
     restart('self')
+
+
+def worktree_rows(team):
+    """Every worktree in the team's <repo>-worktrees.noindex folders, with what `prune` needs to know about it."""
+    cfg = config(team)
+    reports = read_json(os.path.join(state_dir(team), 'reports.json'), {})
+    busy = {r.get('worktree') for r in reports.values() if not r.get('done')}
+    busy |= {p.get('worktree') for p in read_json(os.path.join(state_dir(team), 'parked.json'), [])}
+    # A process running in a worktree (dev server, test) would lose its folder.
+    cwds = [l[1:] for l in run(['lsof', '-d', 'cwd', '-Fn']).stdout.splitlines() if l.startswith('n')]
+    owners = worktree_owners(team)
+    rows = []
+    for top in dict.fromkeys([repo_root(os.getcwd())] + [repo_root(r) for r in cfg.get('repos', []) if os.path.isdir(r)]):
+        base = (run(['git', '-C', top, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).stdout.strip().removeprefix('origin/')
+                or run(['git', '-C', top, 'branch', '--show-current']).stdout.strip())
+        folder = f'{top}-worktrees.noindex' + os.sep
+        for block in run(['git', '-C', top, 'worktree', 'list', '--porcelain']).stdout.split('\n\n'):
+            lines = block.splitlines()
+            path = next((l[9:] for l in lines if l.startswith('worktree ')), '')
+            if not path.startswith(folder) or not os.path.isdir(path):
+                continue
+            branch = next((l[18:] for l in lines if l.startswith('branch refs/heads/')), '')
+            changed = len(run(['git', '-C', path, 'status', '--porcelain']).stdout.splitlines())
+            merged = bool(branch) and run(['git', '-C', top, 'merge-base', '--is-ancestor', branch, base]).returncode == 0
+            hours = (time.time() - os.path.getmtime(path)) / 3600
+            if not merged:
+                state = 'not merged'
+            elif changed:
+                state = f'merged, {changed} uncommitted'
+            elif path in busy or any(c == path or c.startswith(path + os.sep) for c in cwds):
+                state = 'merged, in use'
+            elif hours < 1:  # just made: it has no commits yet, so it counts as merged
+                state = 'merged, new'
+            else:
+                state = 'can remove'
+            rows.append({'path': path, 'top': top, 'branch': branch, 'owner': owners.get(path, ''), 'state': state,
+                         'changed': changed, 'days': int(hours / 24)})
+    return rows
+
+
+def worktrees(args):
+    """List the team's worktrees; `prune` removes the merged, clean and unused ones with their branches. Git's own
+    commands do the removing, without force, so they refuse anything with unsaved work."""
+    team = team_name()
+    rows = worktree_rows(team)
+    if args[:1] == ['prune']:
+        removed = 0
+        for w in rows:
+            if w['state'] != 'can remove':
+                continue
+            r = run(['git', '-C', w['top'], 'worktree', 'remove', w['path']])
+            if r.returncode:
+                print(f"Kept {w['path']}: {r.stderr.strip()}")
+                continue
+            removed += 1
+            set_worktree_owner(team, w['path'], None)
+            run(['git', '-C', w['top'], 'branch', '-d', w['branch']])
+            print(f"Removed {w['path']} and branch {w['branch']}")
+        print(f'{removed} removed, {len(rows) - removed} kept.')
+        return
+    if args:
+        sys.exit('Usage: tunedteam worktrees [prune]')
+    for w in rows:
+        print(f"{w['state']:<24} {w['days']:>3} d  {w['owner'] or '-':<15} {w['branch'] or '(no branch)':<34} {w['path']}")
+    print(f"{len(rows)} worktrees, {sum(w['state'] == 'can remove' for w in rows)} can be removed: tunedteam worktrees prune")
 
 
 def worktree(args):
@@ -923,6 +1012,7 @@ def worktree(args):
         reports = read_json(rp, {})
         reports.setdefault(os.environ['TUNED_NAME'], {}).update(worktree=path, branch=branch, repo=top)
         write_json(rp, reports)
+        set_worktree_owner(team_name(), path, os.environ['TUNED_NAME'])
     print(f'Worktree for {branch} (from {base}): {path}')
 
 
@@ -1024,6 +1114,8 @@ def unpark(k):
     reports.setdefault(name, {}).update({x: p[x] for x in ('branch', 'worktree', 'repo') if p[x]},
                                         what=p['what'], done=False)
     write_json(rp, reports)
+    if p['worktree']:
+        set_worktree_owner(team, p['worktree'], name)
     print(f"yours again: {p['what']}\nwaited for: {p['waits']}\nbranch {p['branch'] or '-'}, worktree {p['worktree'] or '-'}")
 
 
@@ -1900,8 +1992,10 @@ def main():
         owner_run(a[1:])
     elif cmd == 'check':
         check(a[1:])
+    elif cmd == 'worktrees':
+        worktrees(a[1:])
     elif cmd == 'done':
-        done()
+        done(a[1:])
     elif cmd == 'add':
         add()
     elif cmd == 'restart' and len(a) > 1:

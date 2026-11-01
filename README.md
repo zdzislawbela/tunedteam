@@ -246,7 +246,8 @@ director uses the same command when you ask for something recurring.
 | `tunedteam worktree [--repo PATH] BRANCH [BASE]` | new branch + worktree in `<repo>-worktrees.noindex/` next to the repo (`--repo`: a connected repo) (Spotlight skips `.noindex` folders), node_modules cloned, .env.local linked to the main checkout's |
 | `tunedteam owner-run < commands` | saves commands the owner has to run as a script and prints one string without spaces in the project folder (`~/repos/myapp/.run/7`, kept out of git): double-click it, copy, paste into the shell tab or after `!` in a window |
 | `tunedteam check [--timeout S] [--force] CMD` | runs the full check once one of the 2 machine slots is free (exit 3: no slot, nothing ran); skips it when the same command already passed on the same clean tree (`--force` runs it) |
-| `tunedteam done` | task merged: the window restarts with a fresh context; refuses while the task's worktree or branch is still there |
+| `tunedteam worktrees [prune]` | the team's worktrees: owner, branch, state and age; `prune` removes only the merged, clean and unused ones with their branches |
+| `tunedteam done [--force]` | task merged: the window restarts with a fresh context; refuses while a worktree this window made or its branch is still there (`--force`: the work went to another window) |
 | `tunedteam add` | opens one more specialist |
 | `tunedteam restart NAME\|self` | restarts a window with a fresh context |
 | `tunedteam close-all [--force]` | lists unmerged work; with none (or `--force`) closes every window |

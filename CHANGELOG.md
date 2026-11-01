@@ -2,6 +2,14 @@
 
 What each version of Tuned Team brings. Update with `brew upgrade tunedteam`.
 
+## 0.2.37 (2026-11-01)
+
+- `tunedteam worktrees` shows every worktree of the team with its owner, branch, state and age.
+  `tunedteam worktrees prune` removes only the merged, clean and unused ones with their branches. It keeps
+  anything with uncommitted files, a running task or process, a parked task, or less than an hour old.
+- `tunedteam done` now sees every worktree the window made, also after a second worktree or a restart.
+  `tunedteam done --force` lets go of work handed to another window.
+
 ## 0.2.36 (2026-11-01)
 
 - A killed window no longer disappears. It stays open with its exit code or signal (`signal=term`), and the
