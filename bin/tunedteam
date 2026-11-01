@@ -211,7 +211,8 @@ def config(team):
 def windows(team):
     """[(index, name, pane_pid)] of the team's tmux session."""
     out = tmux('list-panes', '-s', '-t', f'={team}', '-F', '#{window_index}\t#{window_name}\t#{pane_pid}').stdout
-    return [(int(i), n, int(p)) for i, n, p in (l.split('\t') for l in out.splitlines() if l.count('\t') == 2)]
+    # A dead pane (remain-on-exit in tmux.conf) has no pid: 0.
+    return [(int(i), n, int(p or 0)) for i, n, p in (l.split('\t') for l in out.splitlines() if l.count('\t') == 2)]
 
 
 def numbers(team, role):

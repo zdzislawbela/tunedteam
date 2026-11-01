@@ -2,6 +2,14 @@
 
 What each version of Tuned Team brings. Update with `brew upgrade tunedteam`.
 
+## 0.2.36 (2026-11-01)
+
+- A killed window no longer disappears. It stays open with its exit code or signal (`signal=term`), and the
+  death goes to `~/.tunedteam/pane-deaths.log` with the time, team and window. A clean exit closes the window
+  as before. `tunedteam restart <window>` brings a dead window back.
+- Agents stop a dev server by its listening port only, so they no longer kill browsers and tests connected to
+  that port, or a teammate's server.
+
 ## 0.2.35 (2026-10-25)
 
 - A brake on your plan. Past 80% of the 5-hour or weekly limit the team gives no sweeps, adds no
