@@ -277,6 +277,8 @@ work, so one person can run 16 of them without switching between windows.
 
 ## How it works
 
+Technical map of processes, tmux, files and failures: [docs/architecture.md](docs/architecture.md).
+
 - Roles: `roles/team.md` (rules for everyone) plus `roles/director.md` or
   `roles/specialist.md`, passed with `--append-system-prompt-file`.
 - The director's handover before a fresh start goes to `~/.tunedteam/teams/<repo>/handover.md`.
