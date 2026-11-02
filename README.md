@@ -148,7 +148,7 @@ and release, whether to read notifications or only questions aloud, and what the
 when it has nothing to do (see below). The director
 answers in the language you write in; agents write to each other in English. Then the tabs open and you talk to the director (tab 0). The last tab, `shell · last resort`,
 is a plain terminal for you in the project folder, for when you have to type something yourself.
-With [lazygit](https://github.com/jesseduffield/lazygit) installed, the tab before it shows the repo in lazygit.
+With [lazygit](https://github.com/jesseduffield/lazygit) installed, the tab before it shows the repo in lazygit. With connected repos, the start asks whether each gets a lazygit tab too (default: no, because lazygit opens the main checkout, not a worktree).
 Tabs of your own go in `~/.tunedteam/tabs`, one per line as `name: command` (e.g. `awake: caffeinate -d`):
 each opens as a shell with the command typed in, so your aliases work.
 All names are in English (`director`, `specialist-N`, `shell`): they are the tab names and

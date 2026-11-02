@@ -2,6 +2,11 @@
 
 What each version of Tuned Team brings. Update with `brew upgrade tunedteam`.
 
+## 0.2.38 (2026-11-02)
+
+- With connected repos, the start asks whether each gets a lazygit tab. The default is no, because lazygit opens
+  the repo's main checkout, not an agent's worktree. The team remembers the answer for its next start.
+
 ## 0.2.37 (2026-11-01)
 
 - `tunedteam worktrees` shows every worktree of the team with its owner, branch, state and age.

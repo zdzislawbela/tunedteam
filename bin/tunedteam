@@ -664,6 +664,15 @@ def choose_repos(last):
     return picked
 
 
+def choose_lazygit_repos(repos, last):
+    """Lazygit opens in the repo's main checkout, not in a worktree, so with worktrees the extra tabs help little:
+    no by default. Asked only when there is a connected repo to decide on."""
+    if not repos or not shutil.which('lazygit'):
+        return False
+    return select('A lazygit tab for each connected repo?', [(True, 'yes'), (False, 'no, only this repo')],
+                  last.get('lazygit_repos', False))
+
+
 def confirm_full():
     """Full rights are hard to undo: say what they mean and take only an explicit yes."""
     print('\n\033[1mFull rights: agents do everything on their own, without asking you:\033[0m\n'
@@ -712,6 +721,7 @@ def start():
         sys.exit('Claude Code does not trust this folder yet on this account, and every window would ask. '
                  'Run `claude` here once, answer "Yes, I trust this folder", exit, then run tunedteam again.')
     repos = choose_repos(last)
+    lazygit_repos = choose_lazygit_repos(repos, last)
     specialists =select('Specialists:', [(n, str(n)) for n in (1, 2, 3, 4, 6, 8, 12, 16)], 16)
     model = select('Model for the specialists (the director always runs on Opus):',
                    [('opus', 'Opus'), ('sonnet', 'Sonnet (uses less of your plan)')], last.get('model', 'opus'))
@@ -728,7 +738,7 @@ def start():
                   last.get('idle', 'wait'))
     skin = choose_skin(team, last)
     cfg = dict(account=account, subscription=subscription, specialists=specialists, model=model, control=control, db=db, speak=speak,
-               idle=idle, cwd=os.getcwd(), repos=repos, skin=skin)
+               idle=idle, cwd=os.getcwd(), repos=repos, lazygit_repos=lazygit_repos, skin=skin)
     write_json(os.path.join(state_dir(team), 'config.json'), cfg)
     write_json(os.path.join(state_dir(team), 'reports.json'), {})
 
@@ -741,9 +751,9 @@ def start():
         open_window(team, f'specialist-{k}', cfg)
         time.sleep(0.3)  # 100 claudes starting in the same second choke the machine
     lazygit = shutil.which('lazygit')
-    if lazygit:  # the repo in lazygit, a tab of its own; each connected repo too (lazygit·ams)
+    if lazygit:  # the repo in lazygit, a tab of its own; each connected repo too if the owner said so (lazygit·ams)
         tmux('new-window', '-d', '-t', f'={team}:', '-n', 'lazygit', '-c', cfg['cwd'], color_cmd(cfg, f'exec {shlex.quote(lazygit)}'))
-        for repo in [r for r in repos if os.path.isdir(r)]:
+        for repo in [r for r in repos if os.path.isdir(r) and lazygit_repos]:
             tmux('new-window', '-d', '-t', f'={team}:', '-n', f'lazygit·{os.path.basename(repo)}', '-c', repo,
                  color_cmd(cfg, f'exec {shlex.quote(lazygit)}'))
     for name, command in own_tabs():
