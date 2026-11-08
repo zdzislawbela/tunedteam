@@ -275,10 +275,15 @@ def settings_file(team, name, cfg):
         # The team counts change while the director sits idle: redraw every 15 s (as long as they are cached).
         s['statusLine']['refreshInterval'] = 15
     if cfg.get('db', 'ask') == 'ask':
-        s['permissions'] = {'ask': DB_WRITE_TOOLS}
+        # A specialist's prompt waits in a window nobody watches: deny there, so its SQL goes to the director.
+        s['permissions'] = {'ask' if name == 'director' else 'deny': DB_WRITE_TOOLS}
     # Auto mode's classifier refuses what it can't place, and after 3 refusals in a row the window stops for the
     # owner. Tell it what this setup is, plus what the owner allowed through `tunedteam allow`.
     allowed = read_json(os.path.join(state_dir(team), 'allow.json'), {})
+    if name == 'director' and 'ask' in s.get('permissions', {}) and any(
+            p.startswith('mcp__') and '__execute_' in p for p in allowed.get('permissions', [])):
+        # Ask beats allow in Claude Code, so an owner's `tunedteam allow` of an execute tool must leave the ask list.
+        s['permissions']['ask'] = [t for t in DB_WRITE_TOOLS if t != 'mcp__*__execute_*']
     repos = [cfg['cwd']] + cfg.get('repos', [])
     s['autoMode'] = {'environment': [
         '$defaults',
@@ -1926,8 +1931,12 @@ def ctx_warning(name, sid):
     if not tokens or pct < limit or pct < warned('ctx', sid) + 5:
         return ''
     warned('ctx', sid, pct)
-    todo = ('write your handover file, then run `tunedteam restart self`' if name == 'director' else
-            'finish the current step, send the director your state (done, left, branch, worktree), '
+    if name == 'director':
+        # A restart clears the window, and with it whatever the owner is typing there.
+        todo = ('write your handover file, then ask the owner in one line and wait for their yes before '
+                '`tunedteam restart self` (when the owner is away, restart without asking)')
+        return f'tunedteam: your context is at {pct}%, past your restart point ({limit}%). Now {todo}.'
+    todo = ('finish the current step, send the director your state (done, left, branch, worktree), '
             'then run `tunedteam restart self`')
     return (f'tunedteam: your context is at {pct}%, past your restart point ({limit}%). Now {todo}. '
             'Do it yourself; it needs no yes from the owner.')
