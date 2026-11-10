@@ -42,16 +42,16 @@ class StatuslineTest(unittest.TestCase):
         fe = self.repo('shop', 'master', '2.50.0-rc.0')
         self.team(fe, [])
         line = self.line(fe)
-        self.assertIn('shop 2.50.0-rc.0 master │', line)
+        self.assertIn('\nshop 2.50.0-rc.0 master\n', line)
         self.assertNotIn(' · shop', line)
 
     def test_two_repo_team_window_repo_first(self):
         fe = self.repo('shop', 'master', '2.50.0-rc.0')
         be = self.repo('silk', 'main')
         self.team(fe, [be])
-        self.assertIn('shop 2.50.0-rc.0 master · silk main │', self.line(fe))
+        self.assertIn('\nshop 2.50.0-rc.0 master · silk main\n', self.line(fe))
         os.remove(os.path.join(self.tmp, '.tunedteam', 'teams', 't', 'statusline-repos.json'))
-        self.assertIn('silk main · shop 2.50.0-rc.0 master │', self.line(be))
+        self.assertIn('\nsilk main · shop 2.50.0-rc.0 master\n', self.line(be))
 
     def test_long_line_drops_versions_first(self):
         fe = self.repo('a-rather-long-frontend-name', 'feature/something-long', '12.34.56-rc.7')
@@ -60,6 +60,33 @@ class StatuslineTest(unittest.TestCase):
         line = self.line(fe)
         self.assertIn('a-rather-long-frontend-name feature/something-long · backend-service-name', line)
         self.assertNotIn('12.34.56', line)
+
+    def test_specialist_shows_model_task_and_worktree(self):
+        fe = self.repo('shop', 'master')
+        wt = os.path.join(self.tmp, 'shop-worktrees.noindex', 'fix-cart')
+        other = os.path.join(self.tmp, 'shop-worktrees.noindex', 'fix-old')
+        os.makedirs(wt)
+        os.makedirs(other)
+        self.team(fe, [])
+        d = os.path.join(self.tmp, '.tunedteam', 'teams', 't')
+        with open(os.path.join(d, 'reports.json'), 'w') as f:
+            json.dump({'specialist-1': {'what': 'cart total', 'eta': '~16:00', 'done': False, 'worktree': wt,
+                                        'branch': 'fix/cart', 'repo': fe}}, f)
+        with open(os.path.join(d, 'worktrees.json'), 'w') as f:
+            json.dump({wt: 'specialist-1', other: 'specialist-1'}, f)
+        data = {'cwd': fe, 'model': {'id': 'claude-fable-5-2', 'display_name': 'Fable'},
+                'context_window': {'context_window_size': 1000000,
+                                   'current_usage': {'input_tokens': 120000}}}
+        out = subprocess.run([BIN, 'statusline'], input=json.dumps(data), env=self.env,
+                             capture_output=True, text=True, check=True).stdout
+        lines = ANSI.sub('', out).splitlines()
+        self.assertEqual(len(lines), 4)
+        self.assertIn('specialist-1 · cart total · ETA ~16:00', lines[0])
+        self.assertIn('Fable │ ctx 12% │ tunedteam', lines[0])
+        self.assertEqual(lines[1], '⎇ shop · fix/cart · shop-worktrees.noindex/fix-cart (+1)')
+        self.assertIn('working', lines[2])
+        with open(os.path.join(self.tmp, '.tunedteam', 'windows.json')) as f:
+            self.assertEqual(json.load(f), {'claude-fable-5-2': 1000000})
 
     def test_outside_a_team_only_the_cwd_repo(self):
         fe = self.repo('shop', 'master')

@@ -2,6 +2,19 @@
 
 What each version of Tuned Team brings. Update with `brew upgrade tunedteam`.
 
+## 0.2.39 (2026-11-10)
+
+- Fable for one task. `tunedteam model specialist-N fable` restarts a specialist on Fable; the window returns
+  to the team's model at its `tunedteam done`. The start asks when the director uses it: only when you ask,
+  or also on its own for the tasks that need the largest model. The director stays on Opus.
+- A specialist's status line has four lines: name, task and ETA with the model and context; its worktree
+  (`⎇ repo · branch · folder`); the team; the Mac. `tunedteam status` has Model and Worktree columns.
+- Context percent counts Fable against its 1M window.
+- The start's questions are numbered steps with one line of explanation each; an answered step folds into
+  `✓ title: answer`.
+- New start step "Lazygit tab": this repo, this repo and the connected repos, or off.
+- New start step "Keep the Mac awake": `caffeinate -i -d` for as long as the team runs.
+
 ## 0.2.38 (2026-11-02)
 
 - With connected repos, the start asks whether each gets a lazygit tab. The default is no, because lazygit opens

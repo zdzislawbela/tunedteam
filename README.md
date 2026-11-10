@@ -140,16 +140,20 @@ tunedteam
 The first question is the project folder: the current one (if it is a git repo), then
 projects you ran a team in, then repos in `~/repos`, or any folder you type.
 
-Every question is a list you pick from with the arrow keys and Enter. It lists your Claude accounts (`~/.claude`, every `~/.claude-*` folder and your own
+Every question is a numbered step: a title, one line saying what it decides, and a list you pick from with
+the arrow keys and Enter. An answered step folds into one line (`✓ Specialists: 8`), so the answers so far
+stay on screen. It lists your Claude accounts (`~/.claude`, every `~/.claude-*` folder and your own
 `CLAUDE_CONFIG_DIR`, e.g. work and private), asks which one to use (with one account it
 skips the question) and logs it in first if needed, so no window opens on a
-logged-out account. Then it asks for the number of specialists, the model, who decides on push
+logged-out account. Then it asks for the number of specialists, their model, when a specialist gets Fable (see
+[Models](#models)), the lazygit tab, whether the Mac stays awake, who decides on push
 and release, whether to read notifications or only questions aloud, and what the team does
 when it has nothing to do (see below). The director
 answers in the language you write in; agents write to each other in English. Then the tabs open and you talk to the director (tab 0). The last tab, `shell · last resort`,
 is a plain terminal for you in the project folder, for when you have to type something yourself.
-With [lazygit](https://github.com/jesseduffield/lazygit) installed, the tab before it shows the repo in lazygit. With connected repos, the start asks whether each gets a lazygit tab too (default: no, because lazygit opens the main checkout, not a worktree).
-Tabs of your own go in `~/.tunedteam/tabs`, one per line as `name: command` (e.g. `awake: caffeinate -d`):
+With [lazygit](https://github.com/jesseduffield/lazygit) installed, the start asks about its tab: this repo (the default), this repo and the connected repos, or off. Lazygit opens a repo's main checkout, not a worktree.
+"Keep the Mac awake" runs `/usr/bin/caffeinate -i -d` for as long as the team runs: no system or display sleep, no tab, and it ends when the team closes.
+Tabs of your own go in `~/.tunedteam/tabs`, one per line as `name: command` (e.g. `logs: npm run logs`):
 each opens as a shell with the command typed in, so your aliases work.
 All names are in English (`director`, `specialist-N`, `shell`): they are the tab names and
 the names commands take. Agents write to each other at `<team>.<name>` (e.g. `myapp.director`),
@@ -165,9 +169,12 @@ iTerm2's settings (tmux windows open as tabs, tab bar location, the tmux gateway
 work from the next start; "leave it" is remembered and not asked again. Other terminals show
 the tmux tab bar at the bottom.
 
-Every window shows the same right half: `repo version branch │ model │ ctx % │ tunedteam version`,
+Every window shows `model │ ctx % │ tunedteam version`,
 the context turning yellow and red as the window nears its restart point (director ~20%,
-specialists ~30%). On the left a specialist shows its name and task. The director has it as the
+specialists ~30%). A specialist shows four lines: its name, task and ETA with the model and context at the
+edge; where it works (`⎇ repo · branch · worktree folder`, with `(+1)` when it has more worktrees open; the
+team's repos while it has none); how the team is doing; and the Mac. The director has
+`repo version branch │ model │ ctx % │ tunedteam version` as the
 top line, then how the team is doing (`● 6 working  ○ 3 free`, plus `▲ 2 WAITING FOR YOU` when
 anyone waits on you), redrawn every 15 s; below it a line about the Mac: a grey `● Mac ok`, or only what needs you,
 with what to do (`▲ 5 dev servers (limit 4): stop 1`, `▲ RAM 44/48 GB, swap 3.2 GB: close a
@@ -250,6 +257,7 @@ director uses the same command when you ask for something recurring.
 | `tunedteam done [--force]` | task merged: the window restarts with a fresh context; refuses while a worktree this window made or its branch is still there (`--force`: the work went to another window) |
 | `tunedteam add` | opens one more specialist |
 | `tunedteam restart NAME\|self` | restarts a window with a fresh context |
+| `tunedteam model [specialist-N fable\|opus\|sonnet]` | restarts a specialist on that model until its `tunedteam done`; no arguments: each window's model |
 | `tunedteam close-all [--force]` | lists unmerged work; with none (or `--force`) closes every window |
 
 `statusline` and `speak` are Claude Code hooks; they are passed to each window with
@@ -289,6 +297,21 @@ Technical map of processes, tmux, files and failures: [docs/architecture.md](doc
 - tmux runs its own server (`tmux -L tuned`) with `tmux.conf` from this repo, so your own tmux is untouched.
 - Every window starts in auto mode. Speaking aloud uses macOS `say`, with a Polish voice
 for text with Polish letters.
+
+## Models
+
+The director always runs on Opus. The specialists run on the model picked at start: Opus or Sonnet.
+
+Fable, the largest model, goes to one specialist for one task. The start asks when:
+
+- **only when you ask**: say "give this to Fable" and the director switches a free specialist to Fable
+  and gives it the task;
+- **also on its own**: the director does the same for a task that needs the largest model (an
+  architecture decision, a change across several repos, a task a specialist sent back as a blocker after
+  3 rounds without gain). With the plan brake on (80% and up) it switches only when you ask.
+
+The switch is `tunedteam model specialist-N fable`: the window restarts on Fable, keeps it over restarts,
+and returns to the team's model at its `tunedteam done`. `tunedteam status` shows every window's model.
 
 ## What it costs
 

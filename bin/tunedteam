@@ -27,6 +27,7 @@ tasks to the specialists, who do the work. The other commands are for the agents
   tunedteam done [--force]             task merged, worktree and branch gone: restart this window fresh (--force: work handed on)
   tunedteam add                        open one more specialist
   tunedteam restart NAME               restart a window with a fresh context
+  tunedteam model [NAME MODEL]         restart a specialist on fable, opus or sonnet until its `tunedteam done` (no args: list)
   tunedteam close-all [--force]        close every window (lists unmerged work first)
   tunedteam statusline                 Claude Code status line (JSON on stdin)
   tunedteam speak                      Claude Code hook: reads <speak> text or a wait aloud
@@ -90,6 +91,21 @@ IDLE = {
             "rest fix; over 10 open, nobody sweeps. A finding that needs the architecture changed goes to the "
             "owner as one decision; decide the rest yourself.",
 }
+# Fable, the largest model: a specialist gets it for one task (`tunedteam model`), on the owner's request or,
+# in auto, when the director sees the task needs it.
+FABLE = {
+    'ask': "Fable (the largest model) is ON REQUEST: when the owner asks for Fable on a task, pick a free specialist, "
+           "run `tunedteam model specialist-N fable` (its window restarts on Fable), then give it the task. The "
+           "window returns to the team's model at its `tunedteam done`. Switch to Fable only on the owner's request.",
+    'auto': "Fable (the largest model) is AUTOMATIC: give Fable to a task when the owner asks for it, and on your own "
+            "when the task needs the largest model: an architecture decision, a change across several repos, or a "
+            "task a specialist sent back as a blocker after 3 rounds without gain. Pick a free specialist (for a "
+            "blocker: the one that has it), run `tunedteam model specialist-N fable` (its window restarts on Fable), "
+            "then give it the task with what was already tried. The window returns to the team's model at its "
+            "`tunedteam done`. Every other task stays on the team's model. With the plan brake on (80% and up), "
+            "switch to Fable only on the owner's request.",
+}
+MODELS = ('fable', 'opus', 'sonnet')
 LANGUAGE = ("Language:reply to the owner in the language the owner writes in. "
             "Write to teammates in English.")
 WAIT = '{name} is waiting for you'
@@ -259,7 +275,7 @@ def prompt_file(team, name, cfg):
              CONTROL[cfg['control']],
              DB[cfg.get('db', 'ask')]]
     if role == 'director':
-        parts += [IDLE[cfg.get('idle', 'wait')], SPEAK[cfg['speak']]]
+        parts += [IDLE[cfg.get('idle', 'wait')], FABLE[cfg.get('fable', 'ask')], SPEAK[cfg['speak']]]
     path = os.path.join(state_dir(team), 'prompts', f'{name}.md')
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w') as f:
@@ -327,8 +343,9 @@ def choose_skin(team, last):
             if os.path.basename(os.path.dirname(f)) != team}
     default = last.get('skin') if last.get('skin') in names else next((n for n in names if n not in used), names[0])
     # A swatch in the theme's color; \033[39m resets only the color, so the highlighted row stays bold.
-    return select('Skin (background and tabs in iTerm2):',
-                  [(n, '\033[38;2;{};{};{}m■\033[39m {}'.format(*rgb(c), label)) for n, label, c in SKINS], default)
+    return select('Skin',
+                  [(n, '\033[38;2;{};{};{}m■\033[39m {}'.format(*rgb(c), label)) for n, label, c in SKINS], default,
+                  hint='The background and tab colour of this team.')
 
 
 def color_cmd(cfg, cmd):
@@ -341,9 +358,30 @@ def color_cmd(cfg, cmd):
     return f"printf '\\033]1337;SetColors=bg={bg}\\a{tab}'; {cmd}"
 
 
+def window_model(team, name, cfg):
+    """The model a window starts on: the director on Opus, a specialist on the team's model unless
+    `tunedteam model` gave it another one for its task."""
+    if name == 'director':
+        return 'opus'
+    return read_json(os.path.join(state_dir(team), 'models.json'), {}).get(name) or cfg.get('model', 'opus')
+
+
+def set_window_model(team, name, model):
+    """Remember a specialist's own model; None (or the team's model) puts it back on the team's."""
+    path = os.path.join(state_dir(team), 'models.json')
+    models = read_json(path, {})
+    if model and model != config(team).get('model', 'opus'):
+        models[name] = model
+    elif name not in models:
+        return
+    else:
+        del models[name]
+    write_json(path, models)
+
+
 def launch(team, name, cfg, first=''):
     """tmux args (env + command) that start one agent's claude."""
-    model = 'opus' if name == 'director' else cfg['model']
+    model = window_model(team, name, cfg)
     # The account comes from CLAUDE_CONFIG_DIR. Without it, clear it explicitly: the tmux server keeps the
     # environment of the shell that first started it, which may belong to the other account.
     prefix = [] if os.environ.get('CLAUDE_CONFIG_DIR') else ['env', '-u', 'CLAUDE_CONFIG_DIR']
@@ -388,7 +426,7 @@ def list_view(options, i, top, mark):
     """The rows of a pick list that fit the terminal, scrolled so row i shows; labels cut to the width
     (a wrapped line would break the redraw). Returns (lines, top)."""
     size = shutil.get_terminal_size()
-    rows = min(len(options), max(3, size.lines - 4))
+    rows = min(len(options), max(3, size.lines - 7))
     top = min(max(top, i - rows + 1), i)
     lines = []
     for k in range(top, top + rows):
@@ -400,7 +438,25 @@ def list_view(options, i, top, mark):
     return lines, top
 
 
-def select(question, options, default=None):
+STEP = 0
+
+
+def step_open(title, hint=''):
+    """The open step: a blank line, its number and title, a dim line saying what it decides. Returns the lines
+    printed, so the step can fold into one line once answered."""
+    global STEP
+    STEP += 1
+    lines = ['', f'\033[2m{STEP:>2}\033[0m  \033[1m{title}\033[0m'] + ([f'    \033[2m{hint}\033[0m'] if hint else [])
+    sys.stdout.write(''.join(l + '\n' for l in lines))
+    return len(lines)
+
+
+def answered(title, answer):
+    """An answered step, one line: ✓ title: answer."""
+    print(f' \033[32m✓\033[0m  {title}: \033[1m{answer}\033[0m')
+
+
+def select(question, options, default=None, hint=''):
     """Pick one option with the arrow keys and Enter. options: [(value, label)]; returns the value.
     Without a terminal (a pipe, a script) it reads one line: a number, a value, or Enter for the default."""
     values = [v for v, _ in options]
@@ -413,7 +469,7 @@ def select(question, options, default=None):
     import termios, tty
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
-    print(question)
+    head = step_open(question, hint)
     sys.stdout.write('\033[?25l')  # hide the cursor while choosing
     top, shown = 0, 0
     def draw():
@@ -444,11 +500,12 @@ def select(question, options, default=None):
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
         sys.stdout.write('\033[?25h')
-    sys.stdout.write(f'\033[{shown}A\033[J  {options[i][1]}\n')
+    sys.stdout.write(f'\033[{shown + head}A\033[J')
+    answered(question, options[i][1])
     return values[i]
 
 
-def select_many(question, options, chosen=()):
+def select_many(question, options, chosen=(), hint='Space ticks, Enter confirms'):
     """Tick any number of options: arrows move, Space ticks, Enter confirms. Returns the ticked values.
     Without a terminal it reads one line: numbers separated by spaces or commas, Enter keeps `chosen`."""
     values = [v for v, _ in options]
@@ -462,7 +519,7 @@ def select_many(question, options, chosen=()):
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     i = 0
-    print(question + ' (Space ticks, Enter confirms)')
+    head = step_open(question, hint)
     sys.stdout.write('\033[?25l')
     top, shown = 0, 0
     def draw():
@@ -497,7 +554,8 @@ def select_many(question, options, chosen=()):
         sys.stdout.write('\033[?25h')
     out = [v for v in values if v in ticked]
     labels = [l for v, l in options if v in ticked]
-    sys.stdout.write(f'\033[{shown}A\033[J  {", ".join(labels) or "none"}\n')
+    sys.stdout.write(f'\033[{shown + head}A\033[J')
+    answered(question, ', '.join(labels) or 'none')
     return out
 
 
@@ -545,7 +603,8 @@ def choose_account(last):
     """Ask which account to use and make sure it is logged in before any window opens."""
     accs = accounts()
     current = last.get('account', os.environ.get('CLAUDE_CONFIG_DIR'))
-    d = accs[0][0] if len(accs) == 1 else select('Claude account:', accs, current)
+    d = accs[0][0] if len(accs) == 1 else select('Claude account', accs, current,
+                                                 hint='Every window of the team runs on it.')
     use_account(d)
     if not auth_status(d).get('loggedIn'):
         print('This account is not logged in. Logging in now (a browser opens).')
@@ -553,7 +612,7 @@ def choose_account(last):
         if not auth_status(d).get('loggedIn'):
             sys.exit('Still not logged in; nothing opened. Run tunedteam again after logging in.')
     st = auth_status(d)
-    print(f"Using {st.get('email') or 'API key'} ({st.get('subscriptionType') or st.get('authMethod', '?')}).")
+    answered('Using', f"{st.get('email') or 'API key'} ({st.get('subscriptionType') or st.get('authMethod', '?')})")
     return d, bool(st.get('subscriptionType'))
 
 
@@ -650,15 +709,15 @@ def choose_repos(last):
     change them, worktrees and the close-all check cover them too."""
     main = repo_root(os.getcwd())
     before = [r for r in last.get('repos', []) if os.path.isdir(r)]
-    if select('Connect other repos to this team?', [('no', 'no'), ('yes', 'yes, pick them')],
-              'yes' if before else 'no') == 'no':
+    if select('Connect other repos', [('no', 'no'), ('yes', 'yes, pick them')], 'yes' if before else 'no',
+              hint='Repos the team reads and changes next to this one, e.g. a backend next to its UI.') == 'no':
         return []
     # Nearest first: the repos sharing the longest part of the path with this one (a backend next to its UI).
     near = lambda d: -len(os.path.commonpath([d, main]))
     paths = [d for d in before + sorted(repo_candidates(), key=near) if d != main]
     paths = list(dict.fromkeys(paths))
     other = '__other__'
-    picked = select_many('Connected repos:', [(d, d.replace(HOME, '~')) for d in paths] + [(other, 'Other folder…')],
+    picked = select_many('Connected repos', [(d, d.replace(HOME, '~')) for d in paths] + [(other, 'Other folder…')],
                          before)
     if other in picked:
         picked.remove(other)
@@ -669,13 +728,36 @@ def choose_repos(last):
     return picked
 
 
-def choose_lazygit_repos(repos, last):
-    """Lazygit opens in the repo's main checkout, not in a worktree, so with worktrees the extra tabs help little:
-    no by default. Asked only when there is a connected repo to decide on."""
-    if not repos or not shutil.which('lazygit'):
+def choose_lazygit(repos, last):
+    """Which repos get a lazygit tab: 'off', 'repo' (this one) or 'all' (the connected repos too). Lazygit opens
+    in a repo's main checkout, not in a worktree, so with worktrees the extra tabs help little: this repo by
+    default. Asked only with lazygit installed."""
+    if not shutil.which('lazygit'):
+        return 'off'
+    before = last.get('lazygit') or ('all' if last.get('lazygit_repos') else 'repo')  # lazygit_repos: before 0.2.39
+    options = [('repo', 'this repo')] + ([('all', 'this repo and the connected repos')] if repos else []) + [('off', 'off')]
+    return select('Lazygit tab', options, before if before in dict(options) else 'repo',
+                  hint="Git in a tab of its own. It shows a repo's main checkout, not the agents' worktrees.")
+
+
+CAFFEINATE = '/usr/bin/caffeinate'
+
+
+def choose_awake(last):
+    """Whether the Mac stays awake while the team runs. Asked only where caffeinate exists (macOS)."""
+    if not os.path.exists(CAFFEINATE):
         return False
-    return select('A lazygit tab for each connected repo?', [(True, 'yes'), (False, 'no, only this repo')],
-                  last.get('lazygit_repos', False))
+    return select('Keep the Mac awake', [(True, 'on'), (False, 'off')], last.get('awake', True),
+                  hint='caffeinate -i -d: no system or display sleep while the team runs.')
+
+
+def keep_awake(team):
+    """caffeinate for as long as the team's tmux session lives: it holds the Mac awake while its command runs,
+    and the command is a wait for the session to end. No tab, nothing to stop by hand."""
+    alive = shlex.join(TMUX + ['has-session', '-t', f'={team}'])
+    subprocess.Popen([CAFFEINATE, '-i', '-d', 'sh', '-c', f'while {alive} 2>/dev/null; do sleep 30; done'],
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=True)
 
 
 def confirm_full():
@@ -707,7 +789,7 @@ def trusted(path):
 
 
 def start():
-    print(f'Tuned Team {version()}. Arrows to choose, Enter to confirm.')
+    print(f'\033[1mTuned Team {version()}\033[0m  \033[2m↑↓ choose · Enter confirm · q quit\033[0m')
     notice = update_notice()
     if notice:
         print(notice)
@@ -726,39 +808,51 @@ def start():
         sys.exit('Claude Code does not trust this folder yet on this account, and every window would ask. '
                  'Run `claude` here once, answer "Yes, I trust this folder", exit, then run tunedteam again.')
     repos = choose_repos(last)
-    lazygit_repos = choose_lazygit_repos(repos, last)
-    specialists =select('Specialists:', [(n, str(n)) for n in (1, 2, 3, 4, 6, 8, 12, 16)], 16)
-    model = select('Model for the specialists (the director always runs on Opus):',
-                   [('opus', 'Opus'), ('sonnet', 'Sonnet (uses less of your plan)')], last.get('model', 'opus'))
+    specialists = select('Specialists', [(n, str(n)) for n in (1, 2, 3, 4, 6, 8, 12, 16)], 16,
+                         hint='The windows that do the work. The director is one more.')
+    model = select("Specialists' model", [('opus', 'Opus'), ('sonnet', 'Sonnet (uses less of your plan)')],
+                   last.get('model', 'opus'), hint='The director always runs on Opus.')
+    fable = select('Fable', [('ask', 'only when you ask the director for it'),
+                             ('auto', 'also on its own, when the director sees a task needs it')],
+                   last.get('fable', 'ask'),
+                   hint='The largest model, for one task at a time. It uses the most of your plan.')
+    lazygit_tabs = choose_lazygit(repos, last)
+    awake = choose_awake(last)
     # The safe answer is always the default here, whatever was picked last time.
-    control = select('Push, release and deploy:', [('owner', 'you decide'), ('team', 'the team decides')], 'owner')
-    db = select('Database and deploy writes through MCP:',
-                [('ask', 'ask you each time'), ('full', 'full rights (staging databases only)')], 'ask')
+    control = select('Push, release and deploy', [('owner', 'you decide'), ('team', 'the team decides')], 'owner',
+                     hint='Who says yes to anything that leaves this Mac.')
+    db = select('Database and deploy writes through MCP',
+                [('ask', 'ask you each time'), ('full', 'full rights (staging databases only)')], 'ask',
+                hint='Reads are always free.')
     if db == 'full' and not confirm_full():
         db = 'ask'
-    speak = select('Read aloud:', [('off', 'off'), ('questions', 'only questions for you'), ('all', 'everything')],
-                   last.get('speak', 'questions'))
-    idle = select('When there is nothing to do:', [('wait', 'wait for your tasks'),
-                                                   ('test', 'test everything, fix what they find')],
+    speak = select('Read aloud', [('off', 'off'), ('questions', 'only questions for you'), ('all', 'everything')],
+                   last.get('speak', 'questions'), hint='What the director says out loud.')
+    idle = select('When there is nothing to do', [('wait', 'wait for your tasks'),
+                                                  ('test', 'test everything, fix what they find')],
                   last.get('idle', 'wait'))
     skin = choose_skin(team, last)
-    cfg = dict(account=account, subscription=subscription, specialists=specialists, model=model, control=control, db=db, speak=speak,
-               idle=idle, cwd=os.getcwd(), repos=repos, lazygit_repos=lazygit_repos, skin=skin)
+    cfg = dict(account=account, subscription=subscription, specialists=specialists, model=model, fable=fable,
+               control=control, db=db, speak=speak, idle=idle, cwd=os.getcwd(), repos=repos, lazygit=lazygit_tabs,
+               awake=awake, skin=skin)
     write_json(os.path.join(state_dir(team), 'config.json'), cfg)
     write_json(os.path.join(state_dir(team), 'reports.json'), {})
+    write_json(os.path.join(state_dir(team), 'models.json'), {})  # a new team: every specialist on the team's model
 
     env, cmd = launch(team, 'director', cfg, first_message('director', cfg))
     r = tmux('new-session', '-d', '-s', team, '-n', 'director', '-c', cfg['cwd'], *env, cmd)
     if r.returncode:
         sys.exit(f'tmux could not start: {r.stderr.strip()}')
-    print(f'Opening the director and {specialists} specialist(s)...')
+    print(f'\nOpening the director and {specialists} specialist(s)...')
+    if awake:
+        keep_awake(team)
     for k in range(1, specialists + 1):
         open_window(team, f'specialist-{k}', cfg)
         time.sleep(0.3)  # 100 claudes starting in the same second choke the machine
-    lazygit = shutil.which('lazygit')
+    lazygit = shutil.which('lazygit') if lazygit_tabs != 'off' else None
     if lazygit:  # the repo in lazygit, a tab of its own; each connected repo too if the owner said so (lazygit·ams)
         tmux('new-window', '-d', '-t', f'={team}:', '-n', 'lazygit', '-c', cfg['cwd'], color_cmd(cfg, f'exec {shlex.quote(lazygit)}'))
-        for repo in [r for r in repos if os.path.isdir(r) and lazygit_repos]:
+        for repo in [r for r in repos if os.path.isdir(r) and lazygit_tabs == 'all']:
             tmux('new-window', '-d', '-t', f'={team}:', '-n', f'lazygit·{os.path.basename(repo)}', '-c', repo,
                  color_cmd(cfg, f'exec {shlex.quote(lazygit)}'))
     for name, command in own_tabs():
@@ -841,7 +935,7 @@ def iterm_setup():
         return
     if read_json(path, {}).get('declined'):
         return
-    pick = select('iTerm2 layout:', [('sidebar', 'tunedteam setup: agents as a list on the left'),
+    pick = select('iTerm2 layout', [('sidebar', 'tunedteam setup: agents as a list on the left'),
                                      ('tabs', 'agents as tabs on top'),
                                      ('no', 'leave iTerm2 as it is (tmux tab bar at the bottom)')], 'sidebar')
     if pick == 'no':
@@ -886,6 +980,30 @@ def restart(name):
     print(f'{name} restarts with a fresh context' + (f' in {delay} s.' if delay else '.'))
 
 
+def model_cmd(args):
+    """`tunedteam model`: each window's model. `tunedteam model specialist-N fable|opus|sonnet`: restart that
+    specialist on the model; it keeps it over restarts and returns to the team's model at its `tunedteam done`."""
+    team = team_name()
+    cfg = config(team)
+    names = [n for _, n, _ in windows(team) if re.fullmatch(r'director|specialist-\d+', n)]
+    if not args:
+        for n in names:
+            print(f'{n}: {window_model(team, n, cfg)}')
+        return
+    if len(args) != 2 or args[1] not in MODELS:
+        sys.exit(f"Usage: tunedteam model [specialist-N {'|'.join(MODELS)}]")
+    name, new = (me() if args[0] == 'self' else args[0]), args[1]
+    if name == 'director':
+        sys.exit('The director always runs on Opus.')
+    if name not in names:
+        sys.exit(f'No window "{name}" in team {team}.')
+    if window_model(team, name, cfg) == new:
+        return print(f'{name} is already on {new}.')
+    set_window_model(team, name, new)
+    restart(name)
+    print(f"{name} runs on {new} until its `tunedteam done`; then back to the team's model ({cfg.get('model', 'opus')}).")
+
+
 def worktree_owners(team):
     """{worktree path: window that made it}. Apart from the reports, which keep one worktree per window and lose it
     on a restart."""
@@ -924,6 +1042,7 @@ def done(args=()):
             sys.exit('Still open, the window keeps its context:\n' + '\n'.join(f'  - {x}' for x in left)
                      + '\nHanded on to another window? tunedteam done --force')
     report(['done'])
+    set_window_model(team, name, None)  # a model given for this task (`tunedteam model`) ends with it
     restart('self')
 
 
@@ -1431,7 +1550,8 @@ def lazygit_setup():
     path = os.path.join(HOME, '.tunedteam', 'lazygit.json')
     if shutil.which('lazygit') or not shutil.which('brew') or read_json(path, {}).get('asked'):
         return
-    pick = select('Install lazygit (a git tab for the repo, through Homebrew)?', [('yes', 'yes'), ('no', 'no')], 'yes')
+    pick = select('Install lazygit', [('yes', 'yes'), ('no', 'no')], 'yes',
+                  hint='A git tab for the repo, installed through Homebrew.')
     os.makedirs(os.path.dirname(path), exist_ok=True)
     write_json(path, {'asked': True})
     if pick == 'yes' and subprocess.call(['brew', 'install', 'lazygit']):
@@ -1491,9 +1611,28 @@ def transcript(sid):
     return last, pending, ctx, model
 
 
+WINDOWS = os.path.join(HOME, '.tunedteam', 'windows.json')
+
+
+def save_window(d):
+    """The status line's own word on the model's context window, kept per model id for the places that only
+    have a transcript (the status table, the restart hook)."""
+    mid, size = (d.get('model') or {}).get('id'), (d.get('context_window') or {}).get('context_window_size')
+    if mid and size and read_json(WINDOWS, {}).get(mid) != size:
+        os.makedirs(os.path.dirname(WINDOWS), exist_ok=True)
+        write_json(WINDOWS, {**read_json(WINDOWS, {}), mid: size})
+
+
 def ctx_pct(tokens, model):
-    window = 1_000_000 if 'opus' in model else 200_000
-    return round(tokens * 100 / window)
+    """Percent of the model's real window. Fable and Opus run on 1M tokens; for any model the larger of that
+    rule and what Claude Code reported counts, so a wrong 200k report never shrinks a 1M window."""
+    rule = 1_000_000 if 'opus' in model or 'fable' in model else 200_000
+    return round(tokens * 100 / max(rule, read_json(WINDOWS, {}).get(model, 0)))
+
+
+def model_name(model):
+    """'claude-fable-5-2' -> 'Fable'; an alias ('opus') the same way; anything else as it is."""
+    return next((n.capitalize() for n in ('fable', 'opus', 'sonnet', 'haiku') if n in model), model)
 
 
 def short(s, n):
@@ -1502,7 +1641,9 @@ def short(s, n):
 
 
 def team_rows(team):
-    """(index, window, branch, ctx, RAM, state, ETA, doing) for the director and every specialist."""
+    """(index, window, branch, ctx, RAM, state, ETA, doing, model, worktree) for the director and every
+    specialist."""
+    cfg = config(team)
     reports = read_json(os.path.join(state_dir(team), 'reports.json'), {})
     rows = []
     for idx, name, pane in windows(team):
@@ -1528,8 +1669,17 @@ def team_rows(team):
         doing = rep.get('what', '') if rep else ''
         rss = run(['ps', '-o', 'rss=', '-p', str(pid)]).stdout.strip() if pid else ''
         ram = f'{int(rss) // 1024} MB' if rss.isdigit() else '–'
-        rows.append((idx, name, role, f'{ctx_pct(tokens, model)}%' if tokens else '–', ram, state, rep.get('eta', ''), doing))
+        wt = rep.get('worktree', '') if rep and not rep.get('done') else ''
+        rows.append((idx, name, role, f'{ctx_pct(tokens, model)}%' if tokens else '–', ram, state, rep.get('eta', ''), doing,
+                     model_name(model or window_model(team, name, cfg)), worktree_short(wt, rep.get('repo', ''))))
     return rows
+
+
+def worktree_short(path, repo=''):
+    """'repo/folder' of a worktree: enough to tell which checkout a window works in."""
+    if not path:
+        return ''
+    return f"{os.path.basename(repo or os.path.dirname(path).removesuffix('-worktrees.noindex'))}/{os.path.basename(path)}"
 
 
 def team_summary(rows):
@@ -1543,7 +1693,7 @@ def tasks():
     """The tasks in progress, each with the specialists on it: from their reports and their live state."""
     team = team_name()
     groups, free = {}, []
-    for idx, name, branch, ctx, ram, state, eta, doing in team_rows(team):
+    for idx, name, branch, ctx, ram, state, eta, doing, _, _ in team_rows(team):
         if not name.startswith('specialist-'):
             continue
         if state in ('free', 'starting or stopped'):
@@ -1581,10 +1731,10 @@ def status():
     print(f"{team} · {time.strftime('%H:%M')} · {team_summary(rows)}" + (f' · {found} open findings' if found else '')
           + (f' · plan {use}' if use else '') + (f' · BRAKE {lvl}%' if lvl else ''))
     print()
-    print('| # | Window | Branch | Ctx | RAM | State | ETA | Doing |')
-    print('|---|---|---|---|---|---|---|---|')
-    for idx, name, role, ctx, ram, state, eta, doing in rows:
-        print(f'| {idx} | {name} | {role} | {ctx} | {ram} | {short(state, 40)} | {short(eta, 12)} | {short(doing, 48)} |')
+    print('| # | Window | Model | Branch | Worktree | Ctx | RAM | State | ETA | Doing |')
+    print('|---|---|---|---|---|---|---|---|---|---|')
+    for idx, name, role, ctx, ram, state, eta, doing, model, wt in rows:
+        print(f'| {idx} | {name} | {model} | {role} | {wt} | {ctx} | {ram} | {short(state, 40)} | {short(eta, 12)} | {short(doing, 48)} |')
     total = sum(int(r[4].split()[0]) for r in rows if r[4] != '–')
     print(f'\nRAM of all windows: {total / 1024:.1f} GB')
 
@@ -1695,10 +1845,13 @@ def statusline():
     # The context colour warns before the role's restart point (director ~20%, specialists ~30%).
     limit = restart_point(name)
     ctx = '' if pct is None else paint(GREEN if pct < limit - 5 else YELLOW if pct < limit else RED, f'ctx {pct}%')
-    out = SEP.join(x for x in (repos_text(repos), paint(DIM, model) if model else '', ctx) if x)
+    right = SEP.join(x for x in (paint(DIM, model) if model else '', ctx) if x)
+    out = SEP.join(x for x in (repos_text(repos), right) if x)
     if name:  # in a team: which tunedteam runs it, in every window
-        out += SEP + paint(DIM, cached(team_name(), 'version', 60, version_line))
+        tail = paint(DIM, cached(team_name(), 'version', 60, version_line))
+        out, right = out + SEP + tail, SEP.join(x for x in (right, tail) if x)
         save_plan(team_name(), d)
+        save_window(d)
     if name == 'director':
         # The window the owner talks to, top to bottom: the usual line, the team and the owner's own line,
         # the Mac, what to say.
@@ -1709,13 +1862,34 @@ def statusline():
         print('  '.join(x for x in (cached(team, 'health', 10, machine_health), plan_alarm(team)) if x))
         print(HINTS)
     elif name:
-        # A specialist: who it is and its task on the left, the same right half as the director's.
-        rep = read_json(os.path.join(state_dir(team_name()), 'reports.json'), {}).get(name, {})
+        # A specialist, top to bottom: who it is, its task and ETA, with the model and context at the edge;
+        # where it works (its worktree, else the team's repos); then the director's lines about the team and
+        # the Mac.
+        team = team_name()
+        rep = read_json(os.path.join(state_dir(team), 'reports.json'), {}).get(name, {})
         task = rep.get('what', '') if rep and not rep.get('done') else ''
-        print(spread(paint(BOLD, name) + (paint(DIM, ' · ') + short(task, 50) if task else paint(DIM, ' · free')),
-                     out, int(os.environ.get('COLUMNS') or 0)))
+        eta = rep.get('eta', '') if task else ''
+        left = paint(BOLD, name) + paint(DIM, ' · ') + (short(task, 50) if task else paint(DIM, 'free'))
+        if eta:
+            left += paint(DIM, ' · ETA ') + short(eta, 20)
+        print(spread(left, right, int(os.environ.get('COLUMNS') or 0)))
+        print(worktree_line(team, name, rep) or repos_text(repos))
+        print(cached(team, 'team', 15, lambda: team_counts(team_rows(team))))
+        print('  '.join(x for x in (cached(team, 'health', 10, machine_health), plan_alarm(team)) if x))
     else:
         print(out)
+
+
+def worktree_line(team, name, rep):
+    """'⎇ repo · branch · folder (+N)': the worktree of the window's open task, and how many more worktrees it
+    made that are still there. Empty without one."""
+    wt = rep.get('worktree', '') if rep and not rep.get('done') else ''
+    if not wt or not os.path.isdir(wt):
+        return ''
+    more = sum(1 for p, o in worktree_owners(team).items() if o == name and p != wt and os.path.isdir(p))
+    folder = os.path.join(os.path.basename(os.path.dirname(wt)), os.path.basename(wt))
+    return (paint(DIM, '⎇ ') + paint(BOLD, os.path.basename(rep.get('repo') or '')) + paint(DIM, ' · ')
+            + paint(MAGENTA, rep.get('branch', '')) + paint(DIM, ' · ' + folder + (f' (+{more})' if more else '')))
 
 
 # ANSI colours from the terminal's own palette, so they follow its theme.
@@ -2019,6 +2193,8 @@ def main():
         add()
     elif cmd == 'restart' and len(a) > 1:
         restart(a[1])
+    elif cmd == 'model':
+        model_cmd(a[1:])
     elif cmd == 'close-all':
         close_all('--force' in a)
     elif cmd == 'statusline':

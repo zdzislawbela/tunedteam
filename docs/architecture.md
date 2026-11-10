@@ -49,8 +49,8 @@ The parent of each `claude` process is the tmux server, not the terminal app.
 
 ## Starting a team
 
-1. `tunedteam` asks for the team's settings: specialists, their model, who controls releases, database
-   rights, reading aloud, and what to do when idle.
+1. `tunedteam` asks for the team's settings: specialists, their model, when Fable is used, the lazygit tab, keeping the
+   Mac awake, who controls releases, database rights, reading aloud, and what to do when idle.
 2. It writes them to `~/.tunedteam/teams/<team>/config.json`.
 3. It builds a prompt from the role files and a Claude Code settings file for each agent.
 4. It calls `tmux new-session` for the director and `tmux new-window` for every other window.
