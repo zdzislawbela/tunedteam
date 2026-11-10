@@ -52,11 +52,6 @@ Homebrew brings tmux along. Claude Code is installed separately
 brings is in [CHANGELOG.md](CHANGELOG.md). Works in any
 terminal (Ghostty, iTerm2, Terminal).
 
-New to tmux? Use **iTerm2** (`brew install --cask iterm2`): every agent is a normal tab you
-click, listed on the left, and no tmux keys to learn. The first start in iTerm2 offers this
-layout. It also raises iTerm2's "Don't open windows when attaching if there are at least this many
-windows" from 10 to 50: a team has 12 windows or more, and below that limit iTerm2 opened no tab, only its tmux Dashboard.
-
 To work on Tuned Team itself instead: clone this repo and run `./install.sh`, which links
 `bin/tunedteam` into `~/bin` (needs `tmux`, `claude`, `python3`, `git`).
 
@@ -166,7 +161,9 @@ Tabs can be clicked. tmux keys: `Ctrl-b w` all windows, `Ctrl-b c` one more term
 In **iTerm2** the first start asks for the layout: the tunedteam setup (every agent a native
 iTerm2 tab, listed on the left), tabs on top, or leave iTerm2 as it is. The first two change
 iTerm2's settings (tmux windows open as tabs, tab bar location, the tmux gateway tab hidden) and
-work from the next start; "leave it" is remembered and not asked again. Other terminals show
+work from the next start; "leave it" is remembered and not asked again. With tabs on, the start also raises
+iTerm2's "Don't open windows when attaching if there are at least this many windows" from 10 to 50: a team
+has 12 windows or more, and below that limit iTerm2 opened no tab, only its tmux Dashboard. Other terminals show
 the tmux tab bar at the bottom.
 
 Every window shows `model │ ctx % │ tunedteam version`,

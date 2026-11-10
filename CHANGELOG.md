@@ -2,6 +2,10 @@
 
 What each version of Tuned Team brings. Update with `brew upgrade tunedteam`.
 
+## 0.2.40 (2026-11-10)
+
+- The start no longer recommends iTerm2 in other terminals. iTerm2 itself works as before.
+
 ## 0.2.39 (2026-11-10)
 
 - Fable for one task. `tunedteam model specialist-N fable` restarts a specialist on Fable; the window returns

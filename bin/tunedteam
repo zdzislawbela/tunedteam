@@ -921,10 +921,6 @@ def iterm_setup():
     global ITERM_JUST_SET
     path = os.path.join(HOME, '.tunedteam', 'iterm.json')
     if os.environ.get('TERM_PROGRAM') != 'iTerm.app':
-        if not read_json(path, {}).get('tip'):  # once: the agents as tabs you click, without tmux keys
-            print('Tip: in iTerm2 every agent is a tab you click (brew install --cask iterm2, then run tunedteam there).')
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            write_json(path, {**read_json(path, {}), 'tip': True})
         return
     if iterm_tmux_tabs():
         limit = run(['defaults', 'read', 'com.googlecode.iterm2', 'TmuxDashboardLimit']).stdout.strip()
