@@ -2,7 +2,11 @@
 
 What each version of Tuned Team brings. Update with `brew upgrade tunedteam`.
 
-## Unreleased
+## 0.2.42 (2026-11-19)
+
+- Teams in Claude Code's sandbox reach tmux: each window's settings allow the team's tmux socket. Before, the
+  sandbox blocked it silently and `tunedteam done`, `restart` and `status` saw no windows ('No window
+  "specialist-N"'). A blocked socket now shows tmux's error and the way out. Restart running teams to pick it up.
 
 - Subagents are visible and kept in bounds. `tunedteam status` shows each running subagent under its window
   (type, what, minutes); `tunedteam log` marks their tool calls (`director ↳ Explore`). The context and plan
