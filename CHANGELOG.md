@@ -2,6 +2,14 @@
 
 What each version of Tuned Team brings. Update with `brew upgrade tunedteam`.
 
+## 0.2.41 (2026-11-11)
+
+- `tunedteam` attaches to a running team from a terminal that is already inside another tmux (the default
+  `tmux`, an editor's terminal). Before, it ran `switch-client` there: it failed with "no current client", or
+  moved another window that showed a team to this one.
+- `tunedteam off`: the owner closes the folder's team. It lists the unmerged work, says it stays on disk, and
+  closes after a yes. Agents keep using `tunedteam close-all`.
+
 ## 0.2.40 (2026-11-10)
 
 - The start no longer recommends iTerm2 in other terminals. iTerm2 itself works as before.

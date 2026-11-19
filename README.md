@@ -256,6 +256,7 @@ director uses the same command when you ask for something recurring.
 | `tunedteam restart NAME\|self` | restarts a window with a fresh context |
 | `tunedteam model [specialist-N fable\|opus\|sonnet]` | restarts a specialist on that model until its `tunedteam done`; no arguments: each window's model |
 | `tunedteam close-all [--force]` | lists unmerged work; with none (or `--force`) closes every window |
+| `tunedteam off` | for the owner, in the project folder: lists unmerged work (it stays on disk) and closes the team after a yes |
 
 `statusline` and `speak` are Claude Code hooks; they are passed to each window with
 `claude --settings`, so your own `settings.json` stays untouched.

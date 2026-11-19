@@ -29,6 +29,7 @@ tasks to the specialists, who do the work. The other commands are for the agents
   tunedteam restart NAME               restart a window with a fresh context
   tunedteam model [NAME MODEL]         restart a specialist on fable, opus or sonnet until its `tunedteam done` (no args: list)
   tunedteam close-all [--force]        close every window (lists unmerged work first)
+  tunedteam off                        the owner closes this folder's team: lists unmerged work, asks for a yes
   tunedteam statusline                 Claude Code status line (JSON on stdin)
   tunedteam speak                      Claude Code hook: reads <speak> text or a wait aloud
 """
@@ -874,10 +875,28 @@ def own_tabs():
     return [(re.sub(r'[^A-Za-z0-9_-]', '-', n), c) for n, c in tabs if n and c]
 
 
+def in_team_server(env=None):
+    """True when this terminal is a pane of the teams' own tmux server. $TMUX ("<socket path>,<pid>,<session>")
+    alone is not enough: another server sets it too, and an editor started from a team window (`code .`)
+    passes it on to every terminal it opens. switch-client from such a terminal moves some other window."""
+    inside = (os.environ if env is None else env).get('TMUX', '')
+    if not inside or os.path.basename(inside.split(',')[0]) != TMUX[2]:
+        return False
+    try:
+        tty = os.ttyname(sys.stdin.fileno())
+    except OSError:
+        return False
+    return tty in tmux('list-panes', '-a', '-F', '#{pane_tty}').stdout.split()
+
+
 def attach(team):
     tmux('select-window', '-t', f'={team}:=director')
     if not sys.stdout.isatty() or os.environ.get('TUNED_NO_ATTACH'):
         return print(f'Team {team} is running: {shlex.join(TMUX + ["attach-session", "-t", team])}')
+    if os.environ.get('TMUX') and not in_team_server():
+        # Inside another tmux server: attach as a nested client (tmux refuses that while $TMUX is set).
+        env = {k: v for k, v in os.environ.items() if k != 'TMUX'}
+        os.execvpe(TMUX[0], TMUX + ['attach-session', '-t', f'={team}'], env)
     if os.environ.get('TMUX'):
         # Inside a team's tab in iTerm2 (tmux -CC): switch-client would move iTerm2's one connection to the other
         # team, closing this team's tabs and opening the other as loose windows. Open a new iTerm2 window instead.
@@ -1380,6 +1399,38 @@ def owner_run(args):
 
 def close_all(force):
     team = team_name()
+    open_work = unmerged_work(team)
+    if open_work and not force:
+        print('Unmerged work, the team stays open:')
+        print('\n'.join(f'  - {w}' for w in open_work))
+        print("Close anyway? Only after the owner's yes: tunedteam close-all --force")
+        sys.exit(1)
+    close_team(team)
+
+
+def off():
+    """The owner closes this folder's team: shows the unmerged work (it stays on disk) and asks for a yes."""
+    team = team_name()
+    if tmux('has-session', '-t', f'={team}').returncode != 0:
+        return print(f'Team {team} is not running.')
+    if not sys.stdin.isatty():
+        sys.exit('tunedteam off asks the owner for a yes: run it in a terminal. Agents use tunedteam close-all.')
+    open_work = unmerged_work(team)
+    if open_work:
+        print('Unmerged work. It stays on disk: closing does not touch branches, worktrees or files.')
+        print('\n'.join(f'  - {w}' for w in open_work))
+    if input(f'Close team {team}? Every window and agent stops. [y/N] ').strip().lower() not in ('y', 'yes'):
+        return print('Nothing closed.')
+    close_team(team)
+
+
+def close_team(team):
+    print(f'Closing team {team}.')
+    # In the background after 3 s: run from a team window, the kill would otherwise cut this command short.
+    tmux('run-shell', '-b', f"sleep 3; {shlex.join(TMUX + ['kill-session', '-t', f'={team}'])}")
+
+
+def unmerged_work(team):
     tops = [repo_root(os.getcwd())] + [r for r in config(team).get('repos', []) if os.path.isdir(r)]
     open_work = []
     for top in tops:
@@ -1396,13 +1447,7 @@ def close_all(force):
             changes = run(['git', '-C', wt, 'status', '--porcelain'] + (['--untracked-files=no'] if wt == top else [])).stdout
             if changes.strip():
                 open_work.append(f'uncommitted files in {wt}: {len(changes.splitlines())}')
-    if open_work and not force:
-        print('Unmerged work, the team stays open:')
-        print('\n'.join(f'  - {w}' for w in open_work))
-        print("Close anyway? Only after the owner's yes: tunedteam close-all --force")
-        sys.exit(1)
-    print(f'Closing team {team}.')
-    tmux('run-shell', '-b', f"sleep 3; {shlex.join(TMUX + ['kill-session', '-t', f'={team}'])}")
+    return open_work
 
 
 # ---------- scheduled commands (launchd: no tokens, survives a closed team and a restarted Mac) ----------
@@ -2193,6 +2238,8 @@ def main():
         model_cmd(a[1:])
     elif cmd == 'close-all':
         close_all('--force' in a)
+    elif cmd == 'off':
+        off()
     elif cmd == 'statusline':
         statusline()
     elif cmd == 'speak':
