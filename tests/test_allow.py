@@ -31,7 +31,7 @@ class AllowTest(unittest.TestCase):
         self.allow('--env', 'QA', 'is', 'staging')
         s = self.settings()
         self.assertEqual(s['permissions']['allow'], ['Bash(npm run dev*)'])
-        self.assertIn('mcp__*__deploy_*', s['permissions']['ask'])  # the owner's ask list stays
+        self.assertIn('mcp__*__deploy_*', s['permissions']['deny'])  # a specialist's DB deny list stays
         env = s['autoMode']['environment']
         self.assertEqual(env[0], '$defaults')
         self.assertTrue(any('/x/app, /x/api' in e for e in env))

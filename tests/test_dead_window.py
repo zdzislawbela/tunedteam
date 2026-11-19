@@ -22,7 +22,9 @@ class DeadWindowTest(unittest.TestCase):
         os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
         self.env = dict(os.environ, HOME=self.home, TUNED_TEAM='t', TUNED_TMUX_SOCKET=self.socket,
                         PATH=f'{stub}:{os.environ["PATH"]}')
-        self.env.pop('TMUX', None)
+        # Run from a team window, TUNED_NAME=specialist-1 would make `restart specialist-1` a delayed restart self.
+        for k in ('TMUX', 'TUNED_NAME'):
+            self.env.pop(k, None)
         team = os.path.join(self.home, '.tunedteam', 'teams', 't')
         os.makedirs(team)
         with open(os.path.join(team, 'config.json'), 'w') as f:

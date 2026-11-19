@@ -169,6 +169,13 @@ def tmux(*args):
     return run(TMUX + list(args))
 
 
+def tmux_sockets():
+    """The team server's socket path, as tmux makes it (TMUX_TMPDIR or /tmp, tmux-UID, -L name), also resolved
+    (/tmp is /private/tmp on macOS)."""
+    path = os.path.join(os.environ.get('TMUX_TMPDIR') or '/tmp', f'tmux-{os.getuid()}', TMUX[2])
+    return list(dict.fromkeys([path, os.path.realpath(path)]))
+
+
 def repo_root(path):
     """The repo's main checkout (the same for every worktree), or the folder itself outside git."""
     out = run(['git', '-C', path, 'rev-parse', '--path-format=absolute', '--git-common-dir']).stdout.strip()
@@ -228,7 +235,13 @@ def config(team):
 
 def windows(team):
     """[(index, name, pane_pid)] of the team's tmux session."""
-    out = tmux('list-panes', '-s', '-t', f'={team}', '-F', '#{window_index}\t#{window_name}\t#{pane_pid}').stdout
+    res = tmux('list-panes', '-s', '-t', f'={team}', '-F', '#{window_index}\t#{window_name}\t#{pane_pid}')
+    if 'Operation not permitted' in res.stderr:
+        # Claude Code's sandbox blocks the socket (a window started before its settings allowed it): without this
+        # the team looks empty and done/restart say "No window".
+        sys.exit(f'{res.stderr.strip()}\nThe sandbox blocks the tmux socket. Rerun the command with the sandbox off '
+                 f'(dangerouslyDisableSandbox); the window allows the socket from its next start.')
+    out = res.stdout
     # A dead pane (remain-on-exit in tmux.conf) has no pid: 0.
     return [(int(i), n, int(p or 0)) for i, n, p in (l.split('\t') for l in out.splitlines() if l.count('\t') == 2)]
 
@@ -317,6 +330,9 @@ def settings_file(team, name, cfg):
         s['hooks']['Stop'] = [{'hooks': [{'type': 'command', 'command': f'{me_cmd} speak'}]}]
     if cfg['speak'] == 'all':
         s['hooks']['Notification'] = [{'hooks': [{'type': 'command', 'command': f'{me_cmd} speak'}]}]
+    # Claude Code's sandbox blocks unix sockets, so every tmux call from a sandboxed window failed and the team
+    # looked empty ("No window" on done/restart). Arrays add up with the user's own settings.
+    s['sandbox'] = {'network': {'allowUnixSockets': tmux_sockets()}}
     path = os.path.join(state_dir(team), 'settings', f'{name}.json')
     os.makedirs(os.path.dirname(path), exist_ok=True)
     write_json(path, s)
