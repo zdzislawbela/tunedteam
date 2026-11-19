@@ -8,9 +8,9 @@ specialists that each take a ticket to a merged branch.
 - **specialists**: each takes one ticket (code, design, copy, research) on its own branch
   and worktree, and is done when that branch is merged.
 
-![A director, 8 specialists and lazygit working on one request, one iTerm2 tab each](docs/demo.gif)
+![A director, 8 specialists and lazygit working on one request, one tab each](docs/demo.gif)
 
-A scripted demo on a made-up project, in iTerm2 with the tunedteam layout: one tab per agent, listed on the left.
+A scripted demo on a made-up project: one tab per agent.
 
 ## Subagents or Tuned Team?
 
@@ -50,7 +50,7 @@ brew install zdzislawbela/tap/tunedteam
 Homebrew brings tmux along. Claude Code is installed separately
 (`brew install --cask claude-code`). Update with `brew upgrade tunedteam`; what each version
 brings is in [CHANGELOG.md](CHANGELOG.md). Works in any
-terminal (Ghostty, iTerm2, Terminal).
+terminal (Terminal, Ghostty and others).
 
 To work on Tuned Team itself instead: clone this repo and run `./install.sh`, which links
 `bin/tunedteam` into `~/bin` (needs `tmux`, `claude`, `python3`, `git`).
@@ -158,13 +158,10 @@ is named after the project folder; a second project with the same folder name ge
 Tabs can be clicked. tmux keys: `Ctrl-b w` all windows, `Ctrl-b c` one more terminal of your own, `Ctrl-b 0` the director, `Ctrl-b n` / `p` next / previous,
 `Ctrl-b d` detach (the team keeps running; `tunedteam` again attaches).
 
-In **iTerm2** the first start asks for the layout: the tunedteam setup (every agent a native
-iTerm2 tab, listed on the left), tabs on top, or leave iTerm2 as it is. The first two change
-iTerm2's settings (tmux windows open as tabs, tab bar location, the tmux gateway tab hidden) and
-work from the next start; "leave it" is remembered and not asked again. With tabs on, the start also raises
-iTerm2's "Don't open windows when attaching if there are at least this many windows" from 10 to 50: a team
-has 12 windows or more, and below that limit iTerm2 opened no tab, only its tmux Dashboard. Other terminals show
-the tmux tab bar at the bottom.
+Each team has its own skin, asked at the start: the tab bar in the theme's color (after Slack's themes:
+Aubergine, Lagoon, Jade and more) and a dark shade of it as the background, so it is plain which team a
+window belongs to. A new team gets the first skin no other team uses. tmux paints it, so it works in any
+terminal, Terminal included; a terminal without 24-bit color shows tmux's nearest of its 256 colors.
 
 Every window shows `model │ ctx % │ tunedteam version`,
 the context turning yellow and red as the window nears its restart point (director ~20%,

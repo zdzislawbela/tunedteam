@@ -323,9 +323,10 @@ def settings_file(team, name, cfg):
     return path
 
 
-# Each team's own skin in iTerm2, after Slack's themes: the tabs in the theme's color, the background a calm,
-# dark shade of it, so it is plain which team a window belongs to. tmux -CC passes a pane's output to iTerm2
-# unchanged, so iTerm2's own escapes reach it. The colors are close to Slack's, picked by eye.
+# Each team's own skin, after Slack's themes: the tab bar in the theme's color, the background a calm, dark
+# shade of it, so it is plain which team a window belongs to. tmux draws it (session options), so it works in
+# any terminal; one without 24-bit color gets tmux's nearest of its 256. The colors are close to Slack's,
+# picked by eye.
 SKINS = [('aubergine', 'Aubergine', '4a154b'), ('lagoon', 'Lagoon', '1264a3'), ('jade', 'Jade', '1f7a5c'),
          ('clementine', 'Clementine', 'd2622b'), ('banana', 'Banana', 'c9a227'), ('barbra', 'Barbra', 'b0306a'),
          ('mood-indigo', 'Mood Indigo', '3b3f9c'), ('gray', 'Gray', '5c5c5c')]
@@ -335,28 +336,44 @@ def rgb(c):
     return tuple(int(c[k:k + 2], 16) for k in (0, 2, 4))
 
 
+def color256(c):
+    """The nearest color of the 6x6x6 cube of 256-color terminals, for the swatches in the pick list."""
+    return 16 + sum(round(v / 255 * 5) * m for v, m in zip(rgb(c), (36, 6, 1)))
+
+
 def choose_skin(team, last):
-    """Ask for the team's skin: the one it had, else the first no other team uses. Only in iTerm2."""
-    if os.environ.get('TERM_PROGRAM') != 'iTerm.app':
-        return None
+    """Ask for the team's skin: the one it had, else the first no other team uses."""
     names = [n for n, _, _ in SKINS]
     used = {read_json(f, {}).get('skin') for f in glob.glob(os.path.join(HOME, '.tunedteam', 'teams', '*', 'config.json'))
             if os.path.basename(os.path.dirname(f)) != team}
     default = last.get('skin') if last.get('skin') in names else next((n for n in names if n not in used), names[0])
     # A swatch in the theme's color; \033[39m resets only the color, so the highlighted row stays bold.
-    return select('Skin',
-                  [(n, '\033[38;2;{};{};{}m■\033[39m {}'.format(*rgb(c), label)) for n, label, c in SKINS], default,
-                  hint='The background and tab colour of this team.')
+    return select('Skin', [(n, f'\033[38;5;{color256(c)}m■\033[39m {label}') for n, label, c in SKINS], default,
+                  hint='The background and tab bar colour of this team.')
 
 
-def color_cmd(cfg, cmd):
-    """A tmux window command that first sets the team's skin (iTerm2 only), then runs cmd."""
-    c = next((c for n, _, c in SKINS if n == cfg.get('skin')), None)
+def skin_styles(skin):
+    """The tmux options that paint a skin: (session options, the window's background); ({}, None) for none."""
+    c = next((c for n, _, c in SKINS if n == skin), None)
     if not c:
-        return cmd
+        return {}, None
     bg = ''.join(f'{0x14 + v // 8:02x}' for v in rgb(c))  # a dark shade of the theme's color
-    tab = ''.join(f'\\033]6;1;bg;{n};brightness;{v}\\a' for n, v in zip(('red', 'green', 'blue'), rgb(c)))
-    return f"printf '\\033]1337;SetColors=bg={bg}\\a{tab}'; {cmd}"
+    return {'status-style': f'bg=#{c},fg=#ffffff', 'window-status-current-style': f'bg=#ffffff,fg=#{c}',
+            'message-style': f'bg=#ffffff,fg=#{c}'}, f'bg=#{bg}'
+
+
+def apply_skin(team, cfg):
+    """Paint the team in its skin, in tmux itself, so any terminal shows it and other teams keep their own.
+    The tab bar is a session option; the background a window option, so each window gets it, and a hook
+    paints the windows opened later (tunedteam add, Ctrl-b c)."""
+    session, window = skin_styles(cfg.get('skin'))
+    if not window:
+        return
+    for option, value in session.items():
+        tmux('set-option', '-t', f'={team}:', option, value)
+    for w in tmux('list-windows', '-t', f'={team}:', '-F', '#{window_id}').stdout.split():
+        tmux('set-option', '-w', '-t', w, 'window-style', window)
+    tmux('set-hook', '-t', f'={team}:', 'after-new-window', f'set-option -w window-style {window}')
 
 
 def window_model(team, name, cfg):
@@ -403,7 +420,7 @@ def launch(team, name, cfg, first=''):
     args = []
     for k, v in env.items():
         args += ['-e', f'{k}={v}']
-    return args, color_cmd(cfg, shlex.join(cmd))
+    return args, shlex.join(cmd)
 
 
 def first_message(name, cfg, restarted=False):
@@ -795,12 +812,12 @@ def start():
     if notice:
         print(notice)
     choose_folder()
-    iterm_setup()
     claude_update_setup()
     lazygit_setup()
     team = unique_team(os.getcwd())
     if tmux('has-session', '-t', f'={team}').returncode == 0:
         print(f'Team "{team}" is already running; attaching.')
+        apply_skin(team, config(team))  # a team started before skins were tmux's own gets its colors too
         return attach(team)
     last = config(team)
     account, subscription = choose_account(last)
@@ -844,6 +861,7 @@ def start():
     r = tmux('new-session', '-d', '-s', team, '-n', 'director', '-c', cfg['cwd'], *env, cmd)
     if r.returncode:
         sys.exit(f'tmux could not start: {r.stderr.strip()}')
+    apply_skin(team, cfg)
     print(f'\nOpening the director and {specialists} specialist(s)...')
     if awake:
         keep_awake(team)
@@ -852,16 +870,16 @@ def start():
         time.sleep(0.3)  # 100 claudes starting in the same second choke the machine
     lazygit = shutil.which('lazygit') if lazygit_tabs != 'off' else None
     if lazygit:  # the repo in lazygit, a tab of its own; each connected repo too if the owner said so (lazygit·ams)
-        tmux('new-window', '-d', '-t', f'={team}:', '-n', 'lazygit', '-c', cfg['cwd'], color_cmd(cfg, f'exec {shlex.quote(lazygit)}'))
+        tmux('new-window', '-d', '-t', f'={team}:', '-n', 'lazygit', '-c', cfg['cwd'], f'exec {shlex.quote(lazygit)}')
         for repo in [r for r in repos if os.path.isdir(r) and lazygit_tabs == 'all']:
             tmux('new-window', '-d', '-t', f'={team}:', '-n', f'lazygit·{os.path.basename(repo)}', '-c', repo,
-                 color_cmd(cfg, f'exec {shlex.quote(lazygit)}'))
+                 f'exec {shlex.quote(lazygit)}')
     for name, command in own_tabs():
         # A plain shell with the command typed in, so the owner's aliases work and Ctrl-C leaves the shell.
-        tmux('new-window', '-d', '-t', f'={team}:', '-n', name, '-c', cfg['cwd'], color_cmd(cfg, 'exec "$SHELL" -l'))
+        tmux('new-window', '-d', '-t', f'={team}:', '-n', name, '-c', cfg['cwd'], 'exec "$SHELL" -l')
         tmux('send-keys', '-t', f'={team}:={name}', command, 'Enter')
     # The owner's own plain terminal in the project folder, the last tab.
-    tmux('new-window', '-d', '-t', f'={team}:', '-n', 'shell', '-c', cfg['cwd'], color_cmd(cfg, 'exec "$SHELL" -l'))
+    tmux('new-window', '-d', '-t', f'={team}:', '-n', 'shell', '-c', cfg['cwd'], 'exec "$SHELL" -l')
     attach(team)
 
 
@@ -898,70 +916,8 @@ def attach(team):
         env = {k: v for k, v in os.environ.items() if k != 'TMUX'}
         os.execvpe(TMUX[0], TMUX + ['attach-session', '-t', f'={team}'], env)
     if os.environ.get('TMUX'):
-        # Inside a team's tab in iTerm2 (tmux -CC): switch-client would move iTerm2's one connection to the other
-        # team, closing this team's tabs and opening the other as loose windows. Open a new iTerm2 window instead.
-        flags = run(['tmux', 'list-clients', '-t', run(['tmux', 'display', '-p', '#S']).stdout.strip(),
-                     '-F', '#{client_control_mode}']).stdout.split()
-        if '1' in flags:
-            cmd = shlex.join([shutil.which(TMUX[0]) or TMUX[0]] + TMUX[1:] + ['-CC', 'attach-session', '-t', f'={team}'])
-            script = f'tell application "iTerm2" to create window with default profile command "{cmd}"'
-            if run(['osascript', '-e', script]).returncode == 0:
-                return print(f'Team {team} opens in a new iTerm2 window.')
-            return print(f'Open a new iTerm2 window (Cmd+N) and run: {cmd}')
         os.execvp(TMUX[0], TMUX + ['switch-client', '-t', f'={team}'])
-    if os.environ.get('TERM_PROGRAM') == 'iTerm.app':
-        if iterm_tmux_tabs():
-            # iTerm2's tmux integration: every agent becomes a native iTerm2 tab (tab bar can sit on the left).
-            os.execvp(TMUX[0], TMUX + ['-CC', 'attach-session', '-t', f'={team}'])
     os.execvp(TMUX[0], TMUX + ['attach-session', '-t', f'={team}'])
-
-
-def iterm_tmux_tabs():
-    """True when iTerm2 opens tmux windows as tabs. Unset (0, its default) means one iTerm2 window per agent."""
-    if ITERM_JUST_SET:
-        return False  # a running iTerm2 may not have read the new settings yet: tabs from the next start
-    value = run(['defaults', 'read', 'com.googlecode.iterm2', 'OpenTmuxWindowsIn']).stdout.strip()
-    return value not in ('', '0')
-
-
-ITERM_JUST_SET = False
-# iTerm2 settings keys: tmux windows as tabs in the attaching window, tab bar on the left,
-# the tmux gateway tab hidden. Read from iTerm2's own plist after setting them in its Settings.
-# TmuxDashboardLimit: with at least this many windows (iTerm2's default: 10) iTerm2 opens none and shows only
-# its tmux Dashboard, and a team has 12 or more.
-ITERM_DASHBOARD_LIMIT = 50
-ITERM_TABS = {'OpenTmuxWindowsIn': 2, 'AutoHideTmuxClientSession': True, 'TmuxDashboardLimit': ITERM_DASHBOARD_LIMIT}
-ITERM_SIDEBAR = {**ITERM_TABS, 'TabViewType': 2}
-
-
-def iterm_setup():
-    """In iTerm2, once: offer the tunedteam layout (every agent a native tab). Asks only while iTerm2 still opens
-    tmux windows as separate windows, and never again after "leave it"."""
-    global ITERM_JUST_SET
-    path = os.path.join(HOME, '.tunedteam', 'iterm.json')
-    if os.environ.get('TERM_PROGRAM') != 'iTerm.app':
-        return
-    if iterm_tmux_tabs():
-        limit = run(['defaults', 'read', 'com.googlecode.iterm2', 'TmuxDashboardLimit']).stdout.strip()
-        if not limit.isdigit() or int(limit) < ITERM_DASHBOARD_LIMIT:
-            run(['defaults', 'write', 'com.googlecode.iterm2', 'TmuxDashboardLimit', '-int', str(ITERM_DASHBOARD_LIMIT)])
-            print(f'iTerm2: tabs open for teams of up to {ITERM_DASHBOARD_LIMIT} windows (was {limit or 10}: '
-                  'more windows than that opened no tab, only the tmux Dashboard).')
-        return
-    if read_json(path, {}).get('declined'):
-        return
-    pick = select('iTerm2 layout', [('sidebar', 'tunedteam setup: agents as a list on the left'),
-                                     ('tabs', 'agents as tabs on top'),
-                                     ('no', 'leave iTerm2 as it is (tmux tab bar at the bottom)')], 'sidebar')
-    if pick == 'no':
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        return write_json(path, {'declined': True})
-    for key, value in (ITERM_SIDEBAR if pick == 'sidebar' else ITERM_TABS).items():
-        kind = ['-bool', 'true' if value else 'false'] if isinstance(value, bool) else ['-int', str(value)]
-        run(['defaults', 'write', 'com.googlecode.iterm2', key, *kind])
-    ITERM_JUST_SET = True
-    print('iTerm2 is set. This start uses the tmux tab bar; from the next start (or after restarting iTerm2) '
-          'every agent is an iTerm2 tab.')
 
 
 # ---------- agents' commands ----------
@@ -988,8 +944,8 @@ def restart(name):
     reports.pop(name, None)
     write_json(os.path.join(state_dir(team), 'reports.json'), reports)
     env, cmd = launch(team, name, cfg, first_message(name, cfg, restarted=True))
-    # respawn-pane, not respawn-window: respawn-window makes the window the session's current one, and iTerm2
-    # (tmux -CC) then jumps to that tab while the owner is typing to the director.
+    # respawn-pane, not respawn-window: respawn-window makes the window the session's current one, and the
+    # owner's view then jumps to it while the owner is typing to the director.
     respawn = shlex.join(TMUX + ['respawn-pane', '-k', '-t', f'={team}:={name}', '-c', cfg['cwd'], *env, cmd])
     tmux('run-shell', '-b', f'sleep {delay}; {respawn}')
     print(f'{name} restarts with a fresh context' + (f' in {delay} s.' if delay else '.'))

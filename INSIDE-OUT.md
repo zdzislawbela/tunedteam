@@ -87,10 +87,9 @@ teams. The rest of this page is how each of those works.
   tmux sessions and `~/.tmux.conf` are never touched. Tests run on yet another socket.
 - **Windows keep their names** (`allow-rename off`, `automatic-rename off`): the names are the
   addresses commands use.
-- **iTerm2:** attaches with `tmux -CC`, so every agent is a native iTerm2 tab (a list on the
-  left if you like). Only when iTerm2 opens tmux windows as tabs: with its default it opens one
-  window per agent. The first start asks once and writes the setting; that start still uses
-  the plain attach, because a running iTerm2 may not have read it yet.
+- **Each team's skin is tmux styling,** not terminal escapes: the tab bar is a session option,
+  the background `window-style` on each window, and an `after-new-window` hook paints windows
+  opened later. So it works in any terminal and never leaks into another team.
 - **Windows start 0.3 s apart.** A dozen Claude Code sessions starting in the same second
   choke the machine.
 - **Extra tabs:** `lazygit` if installed, your own tabs from `~/.tunedteam/tabs` (typed into a
@@ -143,7 +142,7 @@ teams. The rest of this page is how each of those works.
   and dies with the session. A Claude cron (`/loop`, CronCreate) only when each run needs a model,
   on the owner's request, with an end date.
 - **Restarting a window doesn't steal focus.** It uses `tmux respawn-pane`: `respawn-window`
-  makes the window the current one, and iTerm2 then jumps to that tab while you type to the
+  makes the window the current one, and your view then jumps to it while you type to the
   director.
 
 ## Small things

@@ -14,14 +14,14 @@ Claude Code hook calls it, and then exits. tmux and the `claude` processes are w
 | Term | Meaning |
 |---|---|
 | process | A running program with its own PID and a parent process. Signals such as 15 (terminate) and 9 (kill) are sent to processes. |
-| terminal | The app that shows text and passes your keys on, such as iTerm2. It does not run your commands itself. |
+| terminal | The app that shows text and passes your keys on, such as Terminal. It does not run your commands itself. |
 | shell | The program that reads commands and runs them, such as `zsh`. |
 | tmux | A program that keeps terminal programs running independently of the terminal app. It has a server and clients. |
 | tmux server | A background process and the parent of the programs in its windows. |
 | tmux client | The process that connects a terminal to the server. When it detaches, the server and windows keep running. |
 | socket | The file a client uses to reach a server. `-L tuned` selects Tuned Team's own server, separate from your own tmux. |
 | session | A named group of windows. Tuned Team creates one session per team. |
-| window | One screen in a session, like a browser tab. With `tmux -CC`, iTerm2 shows each window as a native tab. |
+| window | One screen in a session, like a browser tab. |
 | pane | A rectangle in a window where a program runs. A window normally has one. |
 | agent | One `claude` process in a pane, with its own conversation context, role and permissions. |
 | worktree | An extra working folder of the same git repo, on its own branch, so agents do not overwrite each other's files. |
@@ -30,8 +30,8 @@ Claude Code hook calls it, and then exits. tmux and the `claude` processes are w
 
 ```text
 macOS
-├── iTerm2 or another terminal
-│   └── tmux client (tmux -CC in iTerm2) ──┐
+├── Terminal or another terminal app
+│   └── tmux client ───────────────────────┐
 ├── launchd: commands from `tunedteam schedule`
 └── tmux server (socket "tuned")  <────────┘
     ├── session "myapp"
@@ -54,7 +54,7 @@ The parent of each `claude` process is the tmux server, not the terminal app.
 2. It writes them to `~/.tunedteam/teams/<team>/config.json`.
 3. It builds a prompt from the role files and a Claude Code settings file for each agent.
 4. It calls `tmux new-session` for the director and `tmux new-window` for every other window.
-5. It attaches your terminal. In iTerm2 this uses `tmux -CC`, once iTerm2 opens tmux windows as tabs.
+5. It paints the team's skin (tmux options of that session) and attaches your terminal.
 
 One agent starts roughly like this, with paths shortened:
 
@@ -112,6 +112,3 @@ how it finds out.
 | The tmux server dies | Every window of every team is gone. |
 | The Mac restarts | All processes are gone. State files, branches and worktrees stay. |
 | `tunedteam restart <window>` | `respawn-pane -k` kills the window's program and starts a new `claude` with an empty context. |
-
-Closing an iTerm2 tab in `tmux -CC` mode can differ from detaching and may close the tmux window. This has not
-been tested.

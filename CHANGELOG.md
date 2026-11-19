@@ -2,6 +2,13 @@
 
 What each version of Tuned Team brings. Update with `brew upgrade tunedteam`.
 
+## Unreleased
+
+- The team's skin (tab bar and background color) works in any terminal, Terminal included: tmux paints it
+  now. The start asks for it everywhere, not only in iTerm2.
+- iTerm2's own setup is gone: no layout question, no native iTerm2 tabs (`tmux -CC`). iTerm2 shows the
+  team like any other terminal, with the tmux tab bar at the bottom.
+
 ## 0.2.41 (2026-11-11)
 
 - `tunedteam` attaches to a running team from a terminal that is already inside another tmux (the default
