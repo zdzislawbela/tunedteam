@@ -4,6 +4,15 @@ What each version of Tuned Team brings. Update with `brew upgrade tunedteam`.
 
 ## Unreleased
 
+- Subagents are visible and kept in bounds. `tunedteam status` shows each running subagent under its window
+  (type, what, minutes); `tunedteam log` marks their tool calls (`director ↳ Explore`). The context and plan
+  warnings go to the window only, never into a subagent. A subagent gets the team's rules when it starts and
+  cannot run `tunedteam restart|done|report|park`: it shares its window's name, so these would act for the whole
+  window. `tunedteam restart` waits for the window's running subagents (at most 10 minutes) before it starts the
+  window fresh.
+- Subagents run on Sonnet unless the call or the agent's definition names another model.
+- The director gives read-only work to subagents (lookups, which files a task touches, a diff review before
+  merge or release) and everything that edits files to a specialist.
 - The team's skin (tab bar and background color) works in any terminal, Terminal included: tmux paints it
   now. The start asks for it everywhere, not only in iTerm2.
 - iTerm2's own setup is gone: no layout question, no native iTerm2 tabs (`tmux -CC`). iTerm2 shows the

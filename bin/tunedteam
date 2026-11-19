@@ -326,6 +326,12 @@ def settings_file(team, name, cfg):
         s.setdefault('permissions', {})['allow'] = allowed['permissions']
     # Tell the window when it passes its restart point (it can't see its own context %).
     s['hooks']['PostToolUse'] = [{'matcher': '*', 'hooks': [{'type': 'command', 'command': f'{me_cmd} ctx-check'}]}]
+    # Subagents: a row in `tunedteam status` while they run, their rules, and no team commands from inside them.
+    for event in ('SubagentStart', 'SubagentStop'):
+        s['hooks'][event] = [{'hooks': [{'type': 'command', 'command': f'{me_cmd} subagent'}]}]
+    s['hooks']['PreToolUse'] = [{'matcher': 'Bash|Agent', 'hooks': [{'type': 'command', 'command': f'{me_cmd} pre-tool'}]}]
+    # Subagents on Sonnet unless a call or an agent's definition names another model.
+    s['env'] = {'CLAUDE_CODE_SUBAGENT_MODEL': 'sonnet'}
     if name == 'director' and cfg['speak'] != 'off':
         s['hooks']['Stop'] = [{'hooks': [{'type': 'command', 'command': f'{me_cmd} speak'}]}]
     if cfg['speak'] == 'all':
@@ -963,8 +969,16 @@ def restart(name):
     # respawn-pane, not respawn-window: respawn-window makes the window the session's current one, and the
     # owner's view then jumps to it while the owner is typing to the director.
     respawn = shlex.join(TMUX + ['respawn-pane', '-k', '-t', f'={team}:={name}', '-c', cfg['cwd'], *env, cmd])
-    tmux('run-shell', '-b', f'sleep {delay}; {respawn}')
-    print(f'{name} restarts with a fresh context' + (f' in {delay} s.' if delay else '.'))
+    # A restart kills the window's subagents: first wait for the running ones (in the background, so the window
+    # still gets their results), at most SUBAGENT_WAIT seconds.
+    running = live_subagents(team, name)
+    wait = shlex.join(['env', f'TUNED_TEAM={team}', f'TUNED_SUBAGENT_WAIT={SUBAGENT_WAIT}', os.path.realpath(__file__), 'subagent-wait', name]) + '; ' if running else ''
+    tmux('run-shell', '-b', f'{wait}sleep {delay}; {respawn}')
+    if running:
+        print(f"{name} waits for {len(running)} running subagent(s) ({', '.join(subagent_label(a) for a in running)}), "
+              f'at most {SUBAGENT_WAIT // 60} min, then restarts with a fresh context. What is still running then is lost.')
+    else:
+        print(f'{name} restarts with a fresh context' + (f' in {delay} s.' if delay else '.'))
 
 
 def model_cmd(args):
@@ -1746,8 +1760,12 @@ def status():
     print()
     print('| # | Window | Model | Branch | Worktree | Ctx | RAM | State | ETA | Doing |')
     print('|---|---|---|---|---|---|---|---|---|---|')
+    subs = read_json(subagents_path(team), {})
     for idx, name, role, ctx, ram, state, eta, doing, model, wt in rows:
         print(f'| {idx} | {name} | {model} | {role} | {wt} | {ctx} | {ram} | {short(state, 40)} | {short(eta, 12)} | {short(doing, 48)} |')
+        for a in subs.get(name, {}).get('running', []):
+            mins = int((time.time() - a.get('t', time.time())) // 60)
+            print(f"|  | ↳ {a.get('type') or 'subagent'} |  |  |  |  |  | subagent, {mins} min |  | {short(a.get('what', ''), 48)} |")
     total = sum(int(r[4].split()[0]) for r in rows if r[4] != '–')
     print(f'\nRAM of all windows: {total / 1024:.1f} GB')
 
@@ -1768,7 +1786,8 @@ def log_lines(team, name=None):
 
 
 def log_row(name, e):
-    return f"{time.strftime('%H:%M:%S', time.localtime(e['t']))}  {name:<14} {e.get('tool', ''):<12} {e.get('what', '')}"
+    who = f"{name} ↳ {e['agent']}" if e.get('agent') else name  # a call made inside one of the window's subagents
+    return f"{time.strftime('%H:%M:%S', time.localtime(e['t']))}  {who:<14} {e.get('tool', ''):<12} {e.get('what', '')}"
 
 
 def log(args):
@@ -1803,9 +1822,11 @@ def log_event(d, name):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     if os.path.exists(path) and os.path.getsize(path) > 5_000_000:
         os.replace(path, path + '.1')  # keep the log small: one old file, the rest goes
+    e = {'t': time.time(), 'tool': d.get('tool_name', ''), 'what': ' '.join(what.split())[:200]}
+    if d.get('agent_id'):
+        e['agent'] = d.get('agent_type') or 'subagent'
     with open(path, 'a') as f:
-        f.write(json.dumps({'t': time.time(), 'tool': d.get('tool_name', ''),
-                            'what': ' '.join(what.split())[:200]}, ensure_ascii=False) + '\n')
+        f.write(json.dumps(e, ensure_ascii=False) + '\n')
 
 def repo_info(path):
     """[main checkout, name, package.json version, branch] of the repo at path (a worktree gives its own branch);
@@ -2093,10 +2114,103 @@ def ctx_check():
     if not name or not sid:
         return
     log_event(d, name)  # here, not in a hook of its own: one Python start per tool call, not two
+    if d.get('agent_id'):
+        return  # a call inside a subagent: the warnings are for the window, not for its subagent
     say = [x for x in (plan_check(name, sid), ctx_warning(name, sid)) if x]
     if say:
         print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PostToolUse',
                                                  'additionalContext': ' '.join(say)}}))
+
+
+SUBAGENT_WAIT = int(os.environ.get('TUNED_SUBAGENT_WAIT', 600))  # seconds a restart waits for running subagents
+SUBAGENT_RULES = ('tunedteam: you are a subagent of the Tuned Team window {name}. Change no tracked file unless '
+                  'your task says so. Run full checks (types, lint, tests) through `tunedteam check --timeout 540 '
+                  '<command>`. Leave `tunedteam restart|done|report|park` and messages to teammates (SendMessage) '
+                  'to {name}: they would act for the whole window. End with your report.')
+# Team commands a subagent must not run: it shares its window's TUNED_NAME, so they would act for the window.
+WINDOW_ONLY = re.compile(r'\btunedteam\s+(restart|done|report|park)\b')
+
+
+def subagents_path(team):
+    return os.path.join(state_dir(team), 'subagents.json')
+
+
+def update_subagents(team, change):
+    """Read, change and write subagents.json under a lock: hooks of parallel subagents run at the same time."""
+    import fcntl
+    path = subagents_path(team)
+    with open(path + '.lock', 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        data = read_json(path, {})
+        out = change(data)
+        write_json(path, data)
+    return out
+
+
+def live_subagents(team, name):
+    return read_json(subagents_path(team), {}).get(name, {}).get('running', [])
+
+
+def subagent_label(a):
+    return f"{a.get('type') or 'subagent'}: {a['what']}" if a.get('what') else (a.get('type') or 'subagent')
+
+
+def pre_tool():
+    """Claude Code hook (PreToolUse, Bash and Agent). The window's Agent call: keep its description for the
+    subagent's row. A subagent's Bash call: deny the team commands that belong to the window."""
+    d = json.loads(sys.stdin.read() or '{}')
+    name, i = os.environ.get('TUNED_NAME'), d.get('tool_input') or {}
+    if not name:
+        return
+    if d.get('tool_name') == 'Agent' and not d.get('agent_id'):
+        what = ' '.join(str(i.get('description') or '').split())[:80]
+        def add(data):
+            data.setdefault(name, {}).setdefault('pending', []).append(what)
+            data[name]['pending'] = data[name]['pending'][-20:]
+        update_subagents(team_name(), add)
+    elif d.get('tool_name') == 'Bash' and d.get('agent_id') and WINDOW_ONLY.search(str(i.get('command', ''))):
+        print(json.dumps({'hookSpecificOutput': {
+            'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
+            'permissionDecisionReason': f'tunedteam: a subagent does not run `tunedteam {WINDOW_ONLY.search(i["command"]).group(1)}`: '
+                                        f'it would act for the whole window {name}. Put it in your report; {name} runs it.'}}))
+
+
+def subagent():
+    """Claude Code hook (SubagentStart, SubagentStop): the window's running subagents in subagents.json, for
+    `tunedteam status` and a restart; on start, the team's rules for the subagent."""
+    d = json.loads(sys.stdin.read() or '{}')
+    name, aid, sid = os.environ.get('TUNED_NAME'), d.get('agent_id'), d.get('session_id')
+    if not name or not aid:
+        return
+    if d.get('hook_event_name') == 'SubagentStart':
+        def add(data):
+            w = data.setdefault(name, {})
+            pending = w.get('pending') or []
+            # Rows of an earlier session of this window died with it.
+            w['running'] = [a for a in w.get('running', []) if a.get('sid') == sid] + [
+                {'id': aid, 'type': d.get('agent_type', ''), 'what': pending.pop(0) if pending else '',
+                 'sid': sid, 't': time.time()}]
+            w['pending'] = pending
+        update_subagents(team_name(), add)
+        print(json.dumps({'hookSpecificOutput': {'hookEventName': 'SubagentStart',
+                                                 'additionalContext': SUBAGENT_RULES.format(name=name)}}))
+    else:
+        def remove(data):
+            w = data.setdefault(name, {})
+            w['running'] = [a for a in w.get('running', []) if a.get('id') != aid]
+        update_subagents(team_name(), remove)
+
+
+def subagent_wait(name):
+    """Before a restart (in the background): wait until the window's subagents end, at most SUBAGENT_WAIT
+    seconds; then forget its rows, since the restart ends whatever still runs."""
+    team = team_name()
+    end = time.time() + SUBAGENT_WAIT
+    while live_subagents(team, name) and time.time() < end:
+        time.sleep(2)
+    def forget(data):
+        data.pop(name, None)
+    update_subagents(team, forget)
 
 
 def warned(kind, sid, value=None):
@@ -2218,6 +2332,12 @@ def main():
         speak()
     elif cmd == 'ctx-check':
         ctx_check()
+    elif cmd == 'pre-tool':
+        pre_tool()
+    elif cmd == 'subagent':
+        subagent()
+    elif cmd == 'subagent-wait' and len(a) > 1:
+        subagent_wait(a[1])
     else:
         sys.exit(__doc__)
 

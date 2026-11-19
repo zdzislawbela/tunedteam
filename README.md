@@ -33,6 +33,12 @@ plain session (see [What it costs](#what-it-costs)).
 The **director** keeps order: who takes which ticket, handoffs between specialists, checks
 before merge, and the release.
 
+The two work together. The director gives read-only work to its own subagents: a lookup, which
+files a task will touch, a review of a diff before merge or release. Whatever edits files goes to a
+specialist. Subagents run on Sonnet unless a model is named, show under their window in
+`tunedteam status`, and cannot run the team commands that act for their window (`restart`, `done`,
+`report`, `park`).
+
 Tools that shape how one piece of work gets done, such as superpowers (brainstorm, plan,
 execute with subagents), work inside a specialist's ticket. Layers, not competitors: Tuned Team
 runs many tickets side by side; such a tool runs one ticket well.
@@ -235,10 +241,10 @@ director uses the same command when you ask for something recurring.
 |---|---|
 | `tunedteam --version` | the installed version (in a git checkout also commits past the release) |
 | `tunedteam tasks` | the tasks in progress, with the specialists, branch, ETA and state of each |
-| `tunedteam log [NAME] [-n N] [-f]` | the windows' last tool calls, oldest first (all, or one window; `-f` keeps printing new ones): what each agent ran, edited, read and sent. One file per window in `~/.tunedteam/teams/<repo>/log/`, at most ~10 MB each |
+| `tunedteam log [NAME] [-n N] [-f]` | the windows' last tool calls, oldest first (all, or one window; `-f` keeps printing new ones): what each agent ran, edited, read and sent; a subagent's calls are marked `NAME ↳ TYPE`. One file per window in `~/.tunedteam/teams/<repo>/log/`, at most ~10 MB each |
 | `tunedteam schedule …` | commands run every day by launchd: list, add, run, log, off, on, rm |
 | `tunedteam --inside-out` | how it works under the hood and why, also in [INSIDE-OUT.md](INSIDE-OUT.md) |
-| `tunedteam status` | team table: who works, who waits for the owner, context, RAM, ETA |
+| `tunedteam status` | team table: who works, who waits for the owner, context, RAM, ETA; each window's running subagents in a row under it |
 | `tunedteam report start\|eta\|done` | a specialist writes its state into the table |
 | `tunedteam allow [RULE.. \| --env TEXT]` | permission rules (e.g. `'Bash(npm run dev*)'`) or a note for auto mode's classifier (`--env "QA is the team's staging"`) for every window of the team, so a block does not come back; each window picks it up when it starts fresh. Every window already tells auto mode that it is part of a team and which repos are yours. No arguments: list |
 | `tunedteam findings [add TEXT \| take ID \| close ID [NOTE]]` | the team's queue of problems found: specialists add what they find outside their task, the director gives open ones as fix tasks. No arguments: list. `tunedteam status` shows how many are open |
@@ -250,12 +256,12 @@ director uses the same command when you ask for something recurring.
 | `tunedteam worktrees [prune]` | the team's worktrees: owner, branch, state and age; `prune` removes only the merged, clean and unused ones with their branches |
 | `tunedteam done [--force]` | task merged: the window restarts with a fresh context; refuses while a worktree this window made or its branch is still there (`--force`: the work went to another window) |
 | `tunedteam add` | opens one more specialist |
-| `tunedteam restart NAME\|self` | restarts a window with a fresh context |
+| `tunedteam restart NAME\|self` | restarts a window with a fresh context; first waits for its running subagents, at most 10 minutes |
 | `tunedteam model [specialist-N fable\|opus\|sonnet]` | restarts a specialist on that model until its `tunedteam done`; no arguments: each window's model |
 | `tunedteam close-all [--force]` | lists unmerged work; with none (or `--force`) closes every window |
 | `tunedteam off` | for the owner, in the project folder: lists unmerged work (it stays on disk) and closes the team after a yes |
 
-`statusline` and `speak` are Claude Code hooks; they are passed to each window with
+`statusline`, `speak`, `ctx-check`, `pre-tool` and `subagent` are Claude Code hooks; they are passed to each window with
 `claude --settings`, so your own `settings.json` stays untouched.
 
 ## Compared with other tools
